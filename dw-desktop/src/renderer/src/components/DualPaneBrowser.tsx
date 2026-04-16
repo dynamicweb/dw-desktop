@@ -286,14 +286,39 @@ export default function DualPaneBrowser(): React.JSX.Element {
                 alignItems: 'center',
                 justifyContent: 'center',
                 background: 'var(--bg)',
-                cursor: 'pointer'
+                gap: 16
               }}
-              onClick={() => setShowAddEnv(true)}
             >
-              <p style={{ color: 'var(--text-subtle)', fontSize: 13, fontFamily: 'var(--font-serif)', fontStyle: 'italic' }}>
+              <p
+                style={{
+                  color: 'var(--text-subtle)',
+                  fontSize: 24,
+                  fontFamily: 'var(--font-serif)',
+                  fontStyle: 'italic',
+                  fontWeight: 300,
+                  textAlign: 'center'
+                }}
+              >
                 No environment connected.
               </p>
-              <p style={{ color: 'var(--accent)', fontSize: 12, marginTop: 4 }}>Click to add one →</p>
+              <button
+                type="button"
+                onClick={() => setShowAddEnv(true)}
+                style={{
+                  padding: '8px 16px',
+                  background: 'var(--accent)',
+                  color: '#fff',
+                  fontSize: 12,
+                  border: 'none',
+                  borderRadius: 'var(--r-sm)',
+                  cursor: 'pointer',
+                  transition: 'background 120ms ease'
+                }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--accent-hover)')}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--accent)')}
+              >
+                + Add environment
+              </button>
             </div>
           )
         ) : (
