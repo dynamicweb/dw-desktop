@@ -20,23 +20,30 @@ const EXT_LABELS: Record<string, string> = {
   json: 'JSON', xml: 'XML', md: 'MD', txt: 'TXT'
 }
 
+function FolderIcon({ color }: { color: string }): React.JSX.Element {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      style={{ flexShrink: 0, display: 'block' }}
+    >
+      <path
+        d="M1.5 3.5C1.5 2.948 1.948 2.5 2.5 2.5H5.793L7.207 3.914C7.395 4.102 7.649 4.207 7.914 4.207H13.5C14.052 4.207 14.5 4.655 14.5 5.207V12.5C14.5 13.052 14.052 13.5 13.5 13.5H2.5C1.948 13.5 1.5 13.052 1.5 12.5V3.5Z"
+        fill={color}
+        fillOpacity="0.18"
+        stroke={color}
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function FileIcon({ entry, isRemote }: { entry: FileEntry; isRemote?: boolean }): React.JSX.Element {
   if (entry.type === 'directory') {
-    return (
-      <span
-        style={{
-          fontSize: 11,
-          fontFamily: 'var(--font-mono)',
-          background: 'var(--surface-raised)',
-          color: isRemote ? 'var(--accent-cool)' : 'var(--text-muted)',
-          padding: '1px 4px',
-          borderRadius: 'var(--r-sm)',
-          flexShrink: 0
-        }}
-      >
-        DIR
-      </span>
-    )
+    return <FolderIcon color={isRemote ? 'var(--accent-cool)' : 'var(--text-muted)'} />
   }
   const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
   const label = EXT_LABELS[ext] ?? (ext.slice(0, 3).toUpperCase() || 'FILE')
