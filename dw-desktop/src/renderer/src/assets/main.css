@@ -119,7 +119,7 @@ body {
 
 button { cursor: pointer; }
 button, input, textarea { font: inherit; }
-input { outline: none; }
+input:not(:focus-visible) { outline: none; }
 
 #root {
   height: 100vh;
