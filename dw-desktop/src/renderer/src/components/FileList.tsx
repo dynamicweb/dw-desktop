@@ -8,6 +8,7 @@ interface FileListProps {
   onSelect: (paths: string[]) => void
   onDoubleClick: (entry: FileEntry) => void
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void
+  onDropIntoDir?: (paths: string[], targetDir: FileEntry) => void
   dropTarget?: boolean
   pane?: 'local' | 'remote'
 }
@@ -78,11 +79,13 @@ export default function FileList({
   onSelect,
   onDoubleClick,
   onContextMenu,
+  onDropIntoDir,
   dropTarget,
   pane
 }: FileListProps): React.JSX.Element {
   const isRemote = pane === 'remote'
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
+  const [draggingPaths, setDraggingPaths] = useState<string[]>([])
 
   function handleClick(e: React.MouseEvent, entry: FileEntry): void {
     if (e.metaKey || e.ctrlKey) {
@@ -148,20 +151,44 @@ export default function FileList({
       {entries.map((entry) => {
         const isSelected = selected.includes(entry.path)
         const isDragOver = dropTarget && dragOverPath === entry.path && entry.type === 'directory'
+        const isDragging = draggingPaths.includes(entry.path)
         return (
           <div
             key={entry.path}
+            draggable
             onClick={(e) => handleClick(e, entry)}
             onContextMenu={(e) => {
               e.preventDefault()
               onContextMenu?.(entry, e.clientX, e.clientY)
             }}
             onDoubleClick={() => onDoubleClick(entry)}
-            onDragLeave={() => setDragOverPath(null)}
+            onDragStart={(e) => {
+              const paths = selected.includes(entry.path) ? selected : [entry.path]
+              e.dataTransfer.setData('application/x-dw-paths', JSON.stringify({ paths, pane }))
+              e.dataTransfer.effectAllowed = 'move'
+              setDraggingPaths(paths)
+            }}
+            onDragEnd={() => setDraggingPaths([])}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                setDragOverPath(null)
+              }
+            }}
             onDragOver={(e) => {
-              if (entry.type === 'directory') {
+              if (dropTarget && entry.type === 'directory') {
                 e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
                 setDragOverPath(entry.path)
+              }
+            }}
+            onDrop={(e) => {
+              if (!dropTarget || entry.type !== 'directory') return
+              e.preventDefault()
+              setDragOverPath(null)
+              const raw = e.dataTransfer.getData('application/x-dw-paths')
+              if (raw && onDropIntoDir) {
+                const { paths } = JSON.parse(raw) as { paths: string[]; pane: string }
+                onDropIntoDir(paths, entry)
               }
             }}
             style={{
@@ -174,9 +201,10 @@ export default function FileList({
               fontSize: 13,
               transition: 'background 80ms ease-out',
               background: isSelected ? 'var(--selection)' : 'transparent',
-              color: isSelected ? 'var(--text)' : 'var(--text)',
+              color: 'var(--text)',
               outline: isDragOver ? '1px dashed var(--accent-cool)' : 'none',
-              outlineOffset: -1
+              outlineOffset: -1,
+              opacity: isDragging ? 0.4 : 1
             }}
             onMouseEnter={(e) => {
               if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--surface-hover)'

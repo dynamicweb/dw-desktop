@@ -252,16 +252,24 @@ export default function DualPaneBrowser(): React.JSX.Element {
           </div>
         )}
 
-        {/* Drop zone */}
+        {/* Drop zone — accepts OS files and drags from local FileList */}
         <div
           style={{ ...dropZoneStyle, cursor: 'pointer' }}
           onClick={() => void handleOpenDialog()}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault()
-            const paths = Array.from(e.dataTransfer.files).map((f) => window.dw.fs.getPathForFile(f))
-            if (paths.length > 0) {
-              void handleUpload(paths.filter(Boolean), remotePath)
+            // Dragged from local FileList rows
+            const raw = e.dataTransfer.getData('application/x-dw-paths')
+            if (raw) {
+              const { paths } = JSON.parse(raw) as { paths: string[]; pane: string }
+              void handleUpload(paths, remotePath)
+              return
+            }
+            // Dragged from OS file explorer
+            const osPaths = Array.from(e.dataTransfer.files).map((f) => window.dw.fs.getPathForFile(f))
+            if (osPaths.length > 0) {
+              void handleUpload(osPaths.filter(Boolean), remotePath)
             }
           }}
           onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--text-muted)')}
@@ -343,6 +351,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
               loading={remoteLoading}
               onContextMenu={(entry, x, y) => setContextMenu({ entry, x, y, pane: 'remote' })}
               onDoubleClick={(entry) => void navigateRemote(entry)}
+              onDropIntoDir={(paths, targetDir) => void handleUpload(paths, targetDir.path)}
               onSelect={(paths) => setSelected('remote', paths)}
               pane="remote"
               selected={remoteSelected}
@@ -352,8 +361,10 @@ export default function DualPaneBrowser(): React.JSX.Element {
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault()
-                if (remoteSelected.length > 0) {
-                  void handleDownload(remoteSelected[0])
+                const raw = e.dataTransfer.getData('application/x-dw-paths')
+                if (raw) {
+                  const { paths } = JSON.parse(raw) as { paths: string[]; pane: string }
+                  for (const p of paths) void handleDownload(p)
                 }
               }}
             >
