@@ -352,6 +352,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
               onContextMenu={(entry, x, y) => setContextMenu({ entry, x, y, pane: 'remote' })}
               onDoubleClick={(entry) => void navigateRemote(entry)}
               onDropIntoDir={(paths, targetDir) => void handleUpload(paths, targetDir.path)}
+              onDropOnPane={(paths) => void handleUpload(paths, remotePath)}
               onSelect={(paths) => setSelected('remote', paths)}
               pane="remote"
               selected={remoteSelected}

@@ -9,6 +9,7 @@ interface FileListProps {
   onDoubleClick: (entry: FileEntry) => void
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void
   onDropIntoDir?: (paths: string[], targetDir: FileEntry) => void
+  onDropOnPane?: (paths: string[]) => void
   dropTarget?: boolean
   pane?: 'local' | 'remote'
 }
@@ -80,12 +81,14 @@ export default function FileList({
   onDoubleClick,
   onContextMenu,
   onDropIntoDir,
+  onDropOnPane,
   dropTarget,
   pane
 }: FileListProps): React.JSX.Element {
   const isRemote = pane === 'remote'
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
   const [draggingPaths, setDraggingPaths] = useState<string[]>([])
+  const [isDragOverPane, setIsDragOverPane] = useState(false)
 
   function handleClick(e: React.MouseEvent, entry: FileEntry): void {
     if (e.metaKey || e.ctrlKey) {
@@ -147,7 +150,36 @@ export default function FileList({
   }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto' }}>
+    <div
+      style={{
+        flex: 1,
+        overflowY: 'auto',
+        outline: isDragOverPane ? '1px dashed var(--accent)' : 'none',
+        outlineOffset: -2
+      }}
+      onDragOver={(e) => {
+        if (!onDropOnPane) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        setIsDragOverPane(true)
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setIsDragOverPane(false)
+        }
+      }}
+      onDrop={(e) => {
+        if (!onDropOnPane) return
+        // Only handle if not dropped onto a row (rows call stopPropagation below)
+        e.preventDefault()
+        setIsDragOverPane(false)
+        const raw = e.dataTransfer.getData('application/x-dw-paths')
+        if (raw) {
+          const { paths } = JSON.parse(raw) as { paths: string[]; pane: string }
+          onDropOnPane(paths)
+        }
+      }}
+    >
       {entries.map((entry) => {
         const isSelected = selected.includes(entry.path)
         const isDragOver = dropTarget && dragOverPath === entry.path && entry.type === 'directory'
@@ -184,6 +216,7 @@ export default function FileList({
             onDrop={(e) => {
               if (!dropTarget || entry.type !== 'directory') return
               e.preventDefault()
+              e.stopPropagation()
               setDragOverPath(null)
               const raw = e.dataTransfer.getData('application/x-dw-paths')
               if (raw && onDropIntoDir) {
