@@ -1,0 +1,161 @@
+@import 'tailwindcss';
+
+/* ─── Design tokens — dark (default) ─── */
+:root {
+  color-scheme: dark;
+
+  --bg:              #121416;
+  --surface:         #1A1D21;
+  --surface-raised:  #22262B;
+  --surface-hover:   #2A3138;
+  --text:            #F3F1EB;
+  --text-muted:      #9AA3A9;
+  --text-subtle:     #5C6470;
+  --accent:          #D07030;
+  --accent-hover:    #E0813F;
+  --accent-cool:     #3FADA8;
+  --accent-cool-dim: #2A7A76;
+  --border:          #2C2F33;
+  --border-strong:   #3D4249;
+  --danger:          #C4453A;
+  --success:         #6E8F62;
+  --warning:         #B8882A;
+  --selection:       #2A3138;
+
+  --env-prod-accent:    #D07030;
+  --env-staging-accent: #3FADA8;
+  --env-dev-accent:     #9AA3A9;
+
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3:  12px;
+  --sp-4:  16px;
+  --sp-5:  20px;
+  --sp-6:  24px;
+  --sp-8:  32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+
+  --r-sm:   3px;
+  --r-md:   5px;
+  --r-full: 9999px;
+
+  --font-ui:   'Geist', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Cascadia Code', 'SF Mono', 'Menlo', monospace;
+  --font-serif: 'Fraunces', Georgia, serif;
+}
+
+/* ─── Light mode tokens ─── */
+[data-theme="light"],
+[data-theme="auto"]:where([data-os-dark="false"]) {
+  color-scheme: light;
+
+  --bg:              #F5F4F0;
+  --surface:         #FFFFFF;
+  --surface-raised:  #EEECE8;
+  --surface-hover:   #E5E3DF;
+  --text:            #1A1A18;
+  --text-muted:      #6B6860;
+  --text-subtle:     #B0ABA3;
+  --accent:          #C05A18;
+  --accent-hover:    #A84A10;
+  --accent-cool:     #2A8C88;
+  --accent-cool-dim: #1F6A66;
+  --border:          #D8D5D0;
+  --border-strong:   #C0BBB4;
+  --danger:          #B83528;
+  --success:         #527A44;
+  --warning:         #9A6E1A;
+  --selection:       #E8E6E2;
+
+  --env-prod-accent:    #C05A18;
+  --env-staging-accent: #2A8C88;
+  --env-dev-accent:     #6B6860;
+}
+
+/* Auto dark: when OS is dark, use dark tokens (already default, but be explicit) */
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"] {
+    color-scheme: dark;
+
+    --bg:              #121416;
+    --surface:         #1A1D21;
+    --surface-raised:  #22262B;
+    --surface-hover:   #2A3138;
+    --text:            #F3F1EB;
+    --text-muted:      #9AA3A9;
+    --text-subtle:     #5C6470;
+    --accent:          #D07030;
+    --accent-hover:    #E0813F;
+    --accent-cool:     #3FADA8;
+    --accent-cool-dim: #2A7A76;
+    --border:          #2C2F33;
+    --border-strong:   #3D4249;
+    --danger:          #C4453A;
+    --success:         #6E8F62;
+    --warning:         #B8882A;
+    --selection:       #2A3138;
+
+    --env-prod-accent:    #D07030;
+    --env-staging-accent: #3FADA8;
+    --env-dev-accent:     #9AA3A9;
+  }
+}
+
+/* ─── Reset ─── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; }
+ul, ol { list-style: none; padding: 0; }
+
+body {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button { cursor: pointer; }
+button, input, textarea { font: inherit; }
+input { outline: none; }
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Electron drag region for titlebar */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.drag-region button, .drag-region input {
+  -webkit-app-region: no-drag;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--r-full); }
+::-webkit-scrollbar-thumb:hover { background: var(--text-subtle); }
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--accent-cool);
+  outline-offset: 1px;
+  border-radius: var(--r-sm);
+}
+
+/* Transfer progress bar — active pulse */
+@keyframes transfer-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.transfer-bar-active {
+  animation: transfer-pulse 1.5s ease-in-out infinite;
+}

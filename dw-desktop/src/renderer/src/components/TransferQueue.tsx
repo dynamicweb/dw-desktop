@@ -151,10 +151,11 @@ export default function TransferQueue(): React.JSX.Element {
                       }}
                     >
                       <div
+                        className={job.status === 'active' && !job.error ? 'transfer-bar-active' : undefined}
                         style={{
                           height: '100%',
                           width: job.error ? '100%' : `${pct}%`,
-                          background: job.error ? 'var(--danger)' : 'var(--accent)',
+                          background: job.error ? 'var(--danger)' : job.status === 'done' ? 'var(--success)' : 'var(--accent)',
                           transition: 'width 300ms ease'
                         }}
                       />
