@@ -1,0 +1,13 @@
+{
+  "folders": [
+    {
+      "name": "Uploader",
+      "path": "."
+    },
+    {
+      "name": "CLI (reference)",
+      "path": "../CLI"
+    }
+  ],
+  "settings": {}
+}

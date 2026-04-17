@@ -1,0 +1,7 @@
+[2026-04-16T15:08:22.049Z] GET http://localhost:8765/dw-desktop-design-preview-1776335970.html → 200 (9ms, 51337B)
+[2026-04-16T15:08:22.067Z] GET https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300;1,9..144,400&family=Geist:wght@300;400;500;600&family=IBM+Plex+Mono:wght@300;400;500&display=swap → pending (?ms, ?B)
+[2026-04-16T15:08:25.224Z] GET https://fonts.gstatic.com/s/geist/v4/gyByhwUxId8gMEwcGFU.woff2 → 200 (123ms, 28400B)
+[2026-04-16T15:08:25.227Z] GET https://fonts.gstatic.com/s/ibmplexmono/v20/-F63fjptAgt5VM-kVkqdyU8n1i8q1w.woff2 → 200 (123ms, 14708B)
+[2026-04-16T15:08:25.228Z] GET https://fonts.gstatic.com/s/fraunces/v38/6NU78FyLNQOQZAnv9bYEvDiIdE9Ea92uemAk_WBq8U_9v0c2Wa0KxC9TeA.woff2 → 200 (174ms, 67304B)
+[2026-04-16T15:08:25.228Z] GET https://fonts.gstatic.com/s/fraunces/v38/6NU58FyLNQOQZAnv9ZwNjucMHVn85Ni7emAe9lKqZTnbB-gzTK0K1ChjeveQ.woff2 → 200 (172ms, 81520B)
+[2026-04-16T15:08:25.228Z] GET https://fonts.gstatic.com/s/ibmplexmono/v20/-F6qfjptAgt5VM-kVkqdyU8n3twJwlBFgg.woff2 → 200 (161ms, 14888B)
