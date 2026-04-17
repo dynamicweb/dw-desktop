@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: dw-desktop
+appId: dk.dynamicweb.dw-desktop
+productName: DW Desktop
 directories:
   buildResources: build
 files:
@@ -39,7 +39,6 @@ appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
-electronDownload:
-  mirror: https://npmmirror.com/mirrors/electron/
+  provider: github
+  owner: dynamicweb
+  repo: dw-desktop
