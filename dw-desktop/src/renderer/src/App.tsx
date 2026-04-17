@@ -9,6 +9,7 @@ import TransferLog from './components/TransferLog'
 import AddEnvModal from './components/AddEnvModal'
 import DebugPanel from './components/DebugPanel'
 import ThemeSwitcher from './components/ThemeSwitcher'
+import ToastContainer from './components/ToastContainer'
 import { useTheme } from './hooks/useTheme'
 
 type Tab = 'files' | 'log' | 'debug'
@@ -118,6 +119,7 @@ export default function App(): React.JSX.Element {
       </div>
 
       <TransferQueue />
+      <ToastContainer />
     </div>
   )
 }
