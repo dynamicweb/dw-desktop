@@ -23,7 +23,7 @@ jobs:
         working-directory: dw-desktop
         run: npm ci
 
-      - name: Build
+      - name: Build (x64 + arm64)
         working-directory: dw-desktop
         run: npm run build:win
         env:
@@ -52,7 +52,7 @@ jobs:
         working-directory: dw-desktop
         run: npm ci
 
-      - name: Build
+      - name: Build (universal — Intel + Apple Silicon)
         working-directory: dw-desktop
         run: npm run build:mac
         env:
