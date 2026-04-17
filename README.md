@@ -2,8 +2,8 @@
 
 A cross-platform desktop application for managing [Dynamicweb 10](https://www.dynamicweb.com) solutions — file transfers, environment management, and remote file browsing, all without needing a terminal.
 
-![DW Desktop — light mode](docs/screenshot-light.png)
-![DW Desktop — dark mode](docs/screenshot-dark.png)
+![DW Desktop — light mode](dw-desktop/docs/screenshot-light.png)
+![DW Desktop — dark mode](dw-desktop/docs/screenshot-dark.png)
 
 ---
 
