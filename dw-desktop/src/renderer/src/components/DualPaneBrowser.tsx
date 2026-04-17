@@ -122,6 +122,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
   async function handleDownload(remotePaths: string[]): Promise<void> {
     if (!activeEnv) return
     const batchId = nanoid()
+    const targetLocalPath = localPath
+    let anyOk = false
     for (const remotePath of remotePaths) {
       const jobId = nanoid()
       const label = remotePath.split('/').filter(Boolean).pop() ?? remotePath
@@ -131,17 +133,22 @@ export default function DualPaneBrowser(): React.JSX.Element {
         direction: 'download',
         label,
         remotePath,
-        localPath,
+        localPath: targetLocalPath,
         status: 'active',
         transferred: 0,
         total: 1
       })
-      const result = await window.dw.files.download(activeEnv.name, remotePath, localPath)
+      const result = await window.dw.files.download(activeEnv.name, remotePath, targetLocalPath)
+      if (result.ok) anyOk = true
       useTransferStore.getState().updateJob(jobId, {
         status: result.ok ? 'done' : 'error',
         transferred: result.ok ? 1 : 0,
         error: result.error
       })
+    }
+    // Reload the local pane if the download target is still the folder shown.
+    if (anyOk && useFileStore.getState().localPath === targetLocalPath) {
+      void loadLocal(targetLocalPath)
     }
   }
 
