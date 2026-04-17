@@ -334,6 +334,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
             <PaneHeader
               breadcrumbs={pathBreadcrumbs(remotePath)}
               label={activeEnv.name}
+              sublabel={activeEnv.host}
               onNavigateUp={() => void loadRemote(activeEnv.name, parentPath(remotePath))}
               onRefresh={() => {
                 setRemoteLoading(true)

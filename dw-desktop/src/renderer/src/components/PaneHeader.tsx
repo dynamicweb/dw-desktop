@@ -1,5 +1,6 @@
 interface PaneHeaderProps {
   label: string
+  sublabel?: string
   breadcrumbs: string[]
   onNavigateUp: () => void
   onRefresh: () => void
@@ -8,6 +9,7 @@ interface PaneHeaderProps {
 
 export default function PaneHeader({
   label,
+  sublabel,
   breadcrumbs,
   onNavigateUp,
   onRefresh,
@@ -27,14 +29,39 @@ export default function PaneHeader({
     >
       <span
         style={{
-          fontSize: 10,
-          textTransform: 'uppercase',
-          letterSpacing: '0.1em',
-          color: 'var(--text-subtle)',
-          flexShrink: 0
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 6,
+          flexShrink: 0,
+          minWidth: 0
         }}
       >
-        {label}
+        <span
+          style={{
+            fontSize: 10,
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+            color: 'var(--text-subtle)'
+          }}
+        >
+          {label}
+        </span>
+        {sublabel && (
+          <span
+            style={{
+              fontSize: 10,
+              fontFamily: 'var(--font-mono)',
+              color: 'var(--text-subtle)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: 220
+            }}
+            title={sublabel}
+          >
+            {sublabel}
+          </span>
+        )}
       </span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, flex: 1, overflow: 'hidden' }}>
         {breadcrumbs.map((segment, index) => {
