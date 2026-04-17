@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { renameSync, writeFileSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
-import type { AppConfig, StoredEnv, ThemeMode } from '../shared/types'
+import type { AppConfig, PaneState, StoredEnv, ThemeMode } from '../shared/types'
 
 function configPath(): string {
   return join(app.getPath('userData'), 'config.json')
@@ -16,7 +16,8 @@ const defaultConfig: AppConfig = {
   version: 1,
   environments: [],
   activeEnv: null,
-  theme: 'auto'
+  theme: 'auto',
+  paneState: {}
 }
 
 let state: AppConfig = { ...defaultConfig }
@@ -40,7 +41,8 @@ async function initConfig(): Promise<void> {
       version: 1,
       environments: parsed.environments ?? [],
       activeEnv: parsed.activeEnv ?? null,
-      theme: parsed.theme ?? 'auto'
+      theme: parsed.theme ?? 'auto',
+      paneState: parsed.paneState ?? {}
     }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -71,10 +73,12 @@ export function addEnv(env: StoredEnv): void {
 }
 
 export function removeEnv(name: string): void {
+  const { [name]: _removed, ...remainingPanes } = state.paneState
   state = {
     ...state,
     environments: state.environments.filter((e) => e.name !== name),
-    activeEnv: state.activeEnv === name ? null : state.activeEnv
+    activeEnv: state.activeEnv === name ? null : state.activeEnv,
+    paneState: remainingPanes
   }
   saveConfig(state)
 }
@@ -98,5 +102,18 @@ export function getTheme(): ThemeMode {
 
 export function setTheme(theme: ThemeMode): void {
   state = { ...state, theme }
+  saveConfig(state)
+}
+
+export function getPaneState(envName: string): PaneState {
+  return state.paneState[envName] ?? {}
+}
+
+export function setPaneState(envName: string, patch: PaneState): void {
+  const existing = state.paneState[envName] ?? {}
+  state = {
+    ...state,
+    paneState: { ...state.paneState, [envName]: { ...existing, ...patch } }
+  }
   saveConfig(state)
 }

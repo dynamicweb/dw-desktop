@@ -1,11 +1,11 @@
 import { createReadStream } from 'fs'
 import { mkdir, readdir, stat, writeFile } from 'fs/promises'
-import { basename, join, relative } from 'path'
+import { basename, dirname, join, relative } from 'path'
 import AdmZip from 'adm-zip'
 import { resolveAuthHeader } from './auth'
 import type { FileEntry, IPCResult, StoredEnv } from '../shared/types'
 
-import { debugLog } from './debug'
+import { debugRequest, debugResponse } from './debug'
 
 function baseUrl(env: StoredEnv): string {
   return `${env.protocol}://${env.host}`
@@ -37,7 +37,7 @@ async function collectLocalFiles(localPaths: string[]): Promise<UploadableFile[]
   for (const localPath of localPaths) {
     const fileStat = await stat(localPath)
     if (fileStat.isDirectory()) {
-      files.push(...(await collectDirectoryFiles(localPath, localPath)))
+      files.push(...(await collectDirectoryFiles(dirname(localPath), localPath)))
     } else {
       files.push({ localPath, remoteRelativePath: basename(localPath), size: fileStat.size })
     }
@@ -72,10 +72,10 @@ export async function listFiles(env: StoredEnv, path: string): Promise<IPCResult
     const apiPath = toApiPath(path)
     const virtualBase = normalizeRemotePath(path)
     const url = `${baseUrl(env)}/Admin/Api/AssetsByDirectory?DirectoryPath=${encodeURIComponent(apiPath)}&IncludeFolders=true&RecursiveSearch=false&pageSize=500`
-    debugLog('GET', url)
+    const dbEntry = debugRequest('GET', url)
     const response = await fetch(url, { headers: { Authorization: authHeader } })
     const bodyText = await response.text()
-    debugLog('GET', url, response.status, bodyText.slice(0, 2000))
+    debugResponse(dbEntry, response.status, (() => { try { return JSON.stringify(JSON.parse(bodyText), null, 2).slice(0, 4000) } catch { return bodyText.slice(0, 4000) } })())
     if (!response.ok) return { ok: false, error: `Server returned ${response.status}: ${bodyText.slice(0, 200)}` }
 
     const payload = JSON.parse(bodyText) as {
@@ -119,12 +119,18 @@ export async function uploadFiles(
     const totalBytes = allFiles.reduce((sum, f) => sum + f.size, 0)
     let transferred = 0
 
+    const uploadUrl = `${baseUrl(env)}/Admin/Api/Upload?createMissingDirectories=true&createEmptyFiles=false`
+    const remoteApiPath = normalizeRemotePath(remotePath).replace(/^\//, '')
+
     for (let i = 0; i < allFiles.length; i += BATCH_SIZE) {
       const batch = allFiles.slice(i, i + BATCH_SIZE)
       const formData = new FormData()
-      formData.append('path', normalizeRemotePath(remotePath).replace(/^\//, ''))
+      formData.append('path', remoteApiPath)
       formData.append('skipExistingFiles', String(!overwrite))
       formData.append('allowOverwrite', String(overwrite))
+
+      const batchFiles = batch.map((f) => f.remoteRelativePath)
+      const dbEntry = debugRequest('POST', uploadUrl, JSON.stringify({ remotePath: remoteApiPath, overwrite, files: batchFiles }, null, 2))
 
       for (const file of batch) {
         const chunks: Buffer[] = []
@@ -137,11 +143,9 @@ export async function uploadFiles(
         formData.append('files', new Blob([Buffer.concat(chunks)]), file.remoteRelativePath)
       }
 
-      const fileNames = batch.map((f) => f.remoteRelativePath).join(', ')
-      const uploadUrl = `${baseUrl(env)}/Admin/Api/Upload?createMissingDirectories=true&createEmptyFiles=false`
       const response = await fetch(uploadUrl, { method: 'POST', headers: { Authorization: authHeader }, body: formData })
       const bodyText = await response.text()
-      debugLog('POST', uploadUrl, response.status, `path=${normalizeRemotePath(remotePath).replace(/^\//, '')} files=[${fileNames}] response=${bodyText.slice(0, 500)}`)
+      debugResponse(dbEntry, response.status, (() => { try { return JSON.stringify(JSON.parse(bodyText), null, 2).slice(0, 2000) } catch { return bodyText.slice(0, 500) } })())
       if (!response.ok) return { ok: false, error: `Upload failed with status ${response.status}: ${bodyText.slice(0, 200)}` }
     }
 
@@ -169,16 +173,16 @@ export async function downloadFile(env: StoredEnv, remotePath: string, localPath
     }
 
     const url = `${baseUrl(env)}/Admin/Api/${endpoint}`
-    debugLog('POST', url, JSON.stringify(body))
+    const dbEntry = debugRequest('POST', url, JSON.stringify(body))
     const response = await fetch(url, {
       method: 'POST',
       headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     })
-    debugLog('POST', url, response.status)
+    const errText = response.ok ? undefined : await response.text()
+    debugResponse(dbEntry, response.status, errText)
     if (!response.ok) {
-      const errText = await response.text()
-      return { ok: false, error: `Transfer failed with status ${response.status}: ${errText.slice(0, 200)}` }
+      return { ok: false, error: `Transfer failed with status ${response.status}: ${(errText ?? '').slice(0, 200)}` }
     }
 
     const buffer = Buffer.from(await response.arrayBuffer())
@@ -250,24 +254,32 @@ export async function copyRemote(env: StoredEnv, source: string, destination: st
   }
 }
 
-export async function moveRemote(
+export async function renameRemote(
   env: StoredEnv,
-  source: string,
-  destination: string,
-  overwrite: boolean
+  filePath: string,
+  newName: string
 ): Promise<IPCResult> {
   try {
     const authHeader = await resolveAuthHeader(env)
-    const response = await fetch(`${baseUrl(env)}/Admin/Api/Management/Files/Move`, {
+    const apiPath = toApiPath(filePath)
+    const dirPath = apiPath.substring(0, apiPath.lastIndexOf('/')) || '/Files'
+    const currentName = apiPath.split('/').pop() ?? ''
+    const url = `${baseUrl(env)}/Admin/Api/FileCreateRename?Query.Type=FileByName`
+    const body = {
+      QueryData: { Name: currentName, DirectoryPath: dirPath },
+      Name: newName
+    }
+    const dbEntry = debugRequest('POST', url, JSON.stringify(body))
+    const response = await fetch(url, {
       method: 'POST',
       headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        source: toApiPath(source),
-        destination: toApiPath(destination),
-        overwrite
-      })
+      body: JSON.stringify(body)
     })
-    if (!response.ok) return { ok: false, error: `Move failed with status ${response.status}` }
+    const errText = response.ok ? undefined : await response.text()
+    debugResponse(dbEntry, response.status, errText)
+    if (!response.ok) {
+      return { ok: false, error: `Rename failed with status ${response.status}: ${(errText ?? '').slice(0, 200)}` }
+    }
     return { ok: true }
   } catch (err) {
     return { ok: false, error: (err as Error).message }

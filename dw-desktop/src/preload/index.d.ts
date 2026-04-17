@@ -1,4 +1,4 @@
-import type { ConnectionStatus, FileEntry, IPCResult, StoredEnv, ThemeMode } from '../shared/types'
+import type { ConnectionStatus, FileEntry, IPCResult, PaneState, StoredEnv, ThemeMode } from '../shared/types'
 
 export interface ProgressPayload {
   jobId: string
@@ -39,7 +39,7 @@ export interface DWDesktopAPI {
     download(envName: string, remotePath: string, localPath: string): Promise<IPCResult>
     delete(envName: string, path: string): Promise<IPCResult>
     copy(envName: string, source: string, destination: string): Promise<IPCResult>
-    move(envName: string, source: string, destination: string, overwrite: boolean): Promise<IPCResult>
+    rename(envName: string, filePath: string, newName: string): Promise<IPCResult>
   }
   fs: {
     list(dirPath: string): Promise<IPCResult<FileEntry[]>>
@@ -60,6 +60,8 @@ export interface DWDesktopAPI {
   settings: {
     getTheme(): Promise<IPCResult<ThemeMode>>
     setTheme(theme: ThemeMode): Promise<IPCResult>
+    getPaneState(envName: string): Promise<IPCResult<PaneState>>
+    setPaneState(envName: string, patch: PaneState): Promise<IPCResult>
   }
 }
 
@@ -68,7 +70,8 @@ export interface DebugEntry {
   method: string
   url: string
   status?: number | string
-  body?: string
+  requestBody?: string
+  responseBody?: string
 }
 
 declare global {

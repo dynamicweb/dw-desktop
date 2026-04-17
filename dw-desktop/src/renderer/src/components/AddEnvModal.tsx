@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useEnvStore } from '../stores/envStore'
 import type { StoredEnv } from '../../../shared/types'
 
@@ -7,6 +7,7 @@ type AuthTab = 'oauth' | 'apiKey' | 'password'
 interface Step1Data {
   name: string
   host: string
+  localStartPath: string
 }
 
 interface Step2Data {
@@ -51,7 +52,7 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
   const setActiveEnv = useEnvStore((s) => s.setActiveEnv)
 
   const [step, setStep] = useState(1)
-  const [step1, setStep1] = useState<Step1Data>({ name: '', host: '' })
+  const [step1, setStep1] = useState<Step1Data>({ name: '', host: '', localStartPath: '' })
   const [step2, setStep2] = useState<Step2Data>({
     authTab: 'oauth',
     apiKey: '',
@@ -62,6 +63,14 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
   })
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ connected: boolean; version?: string; error?: string } | null>(null)
+
+  useEffect(() => {
+    function handleEsc(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onDone()
+    }
+    document.addEventListener('keydown', handleEsc)
+    return () => document.removeEventListener('keydown', handleEsc)
+  }, [onDone])
 
   function detectProtocol(raw: string): 'http' | 'https' {
     if (raw.startsWith('http://')) return 'http'
@@ -78,11 +87,20 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
   }
 
   function buildEnv(): StoredEnv {
+    const trimmedStart = step1.localStartPath.trim()
     return {
       name: step1.name,
       host: cleanHost(step1.host),
       protocol: detectProtocol(step1.host),
-      authType: step2.authTab === 'password' ? 'password' : step2.authTab
+      authType: step2.authTab === 'password' ? 'password' : step2.authTab,
+      ...(trimmedStart ? { localStartPath: trimmedStart } : {})
+    }
+  }
+
+  async function pickLocalStartPath(): Promise<void> {
+    const result = await window.dw.fs.openDialog(['openDirectory'])
+    if (result.ok && result.data && result.data.paths.length > 0) {
+      setStep1((s) => ({ ...s, localStartPath: result.data!.paths[0] }))
     }
   }
 
@@ -179,6 +197,7 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
     >
       <div
         style={{
+          position: 'relative',
           width: 440,
           background: 'var(--surface)',
           border: '1px solid var(--border)',
@@ -186,6 +205,42 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
           padding: 32
         }}
       >
+        <button
+          type="button"
+          aria-label="Close"
+          title="Close (Esc)"
+          onClick={onDone}
+          style={{
+            position: 'absolute',
+            top: 10,
+            right: 10,
+            width: 24,
+            height: 24,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'transparent',
+            border: 'none',
+            borderRadius: 'var(--r-sm)',
+            color: 'var(--text-subtle)',
+            cursor: 'pointer',
+            transition: 'background 80ms ease-out, color 80ms ease-out'
+          }}
+          onMouseEnter={(e) => {
+            const el = e.currentTarget as HTMLElement
+            el.style.background = 'var(--surface-hover)'
+            el.style.color = 'var(--text)'
+          }}
+          onMouseLeave={(e) => {
+            const el = e.currentTarget as HTMLElement
+            el.style.background = 'transparent'
+            el.style.color = 'var(--text-subtle)'
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M3 3L13 13M13 3L3 13" />
+          </svg>
+        </button>
         <StepDots current={step} />
 
         {step === 1 && (
@@ -247,6 +302,33 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
                     </span>
                   </p>
                 )}
+              </div>
+              <div>
+                <label style={labelStyle}>Local start folder (optional)</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    style={inputStyle}
+                    type="text"
+                    placeholder={
+                      window.dw.platform === 'win32'
+                        ? 'e.g. C:\\projects\\my-site'
+                        : 'e.g. ~/projects/my-site'
+                    }
+                    value={step1.localStartPath}
+                    onChange={(e) => setStep1((s) => ({ ...s, localStartPath: e.target.value }))}
+                  />
+                  <button
+                    type="button"
+                    style={{ ...btnSecondary, flexShrink: 0 }}
+                    onClick={() => void pickLocalStartPath()}
+                  >
+                    Browse…
+                  </button>
+                </div>
+                <p style={hintStyle}>
+                  Leave empty to open your home folder. The app remembers where you last
+                  navigated per environment.
+                </p>
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>

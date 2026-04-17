@@ -10,6 +10,7 @@
   "compilerOptions": {
     "composite": true,
     "jsx": "react-jsx",
+    "ignoreDeprecations": "5.0",
     "baseUrl": ".",
     "paths": {
       "@renderer/*": [

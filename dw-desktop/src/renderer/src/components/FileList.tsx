@@ -14,14 +14,6 @@ interface FileListProps {
   pane?: 'local' | 'remote'
 }
 
-const EXT_LABELS: Record<string, string> = {
-  js: 'JS', ts: 'TS', tsx: 'TSX', jsx: 'JSX',
-  css: 'CSS', html: 'HTM', htm: 'HTM',
-  svg: 'SVG', png: 'IMG', jpg: 'IMG', jpeg: 'IMG', gif: 'IMG', webp: 'IMG',
-  zip: 'ZIP', gz: 'GZ', tar: 'TAR',
-  json: 'JSON', xml: 'XML', md: 'MD', txt: 'TXT'
-}
-
 function FolderIcon({ color }: { color: string }): React.JSX.Element {
   return (
     <svg
@@ -43,27 +35,38 @@ function FolderIcon({ color }: { color: string }): React.JSX.Element {
   )
 }
 
+function GenericFileIcon(): React.JSX.Element {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      style={{ flexShrink: 0, display: 'block' }}
+    >
+      <path
+        d="M3.5 1.5H9.5L12.5 4.5V14.5H3.5V1.5Z"
+        fill="var(--text-subtle)"
+        fillOpacity="0.12"
+        stroke="var(--text-subtle)"
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.5 1.5V4.5H12.5"
+        stroke="var(--text-subtle)"
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function FileIcon({ entry, isRemote }: { entry: FileEntry; isRemote?: boolean }): React.JSX.Element {
   if (entry.type === 'directory') {
-    return <FolderIcon color={isRemote ? 'var(--accent-cool)' : 'var(--text-muted)'} />
+    return <FolderIcon color={isRemote ? 'var(--accent-cool)' : 'var(--accent)'} />
   }
-  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-  const label = EXT_LABELS[ext] ?? (ext.slice(0, 3).toUpperCase() || 'FILE')
-  return (
-    <span
-      style={{
-        fontSize: 11,
-        fontFamily: 'var(--font-mono)',
-        background: 'var(--surface-raised)',
-        color: 'var(--text-muted)',
-        padding: '1px 4px',
-        borderRadius: 'var(--r-sm)',
-        flexShrink: 0
-      }}
-    >
-      {label}
-    </span>
-  )
+  return <GenericFileIcon />
 }
 
 function formatSize(bytes?: number): string {
@@ -175,7 +178,9 @@ export default function FileList({
         setIsDragOverPane(false)
         const raw = e.dataTransfer.getData('application/x-dw-paths')
         if (raw) {
-          const { paths } = JSON.parse(raw) as { paths: string[]; pane: string }
+          const { paths, pane: sourcePane } = JSON.parse(raw) as { paths: string[]; pane: string }
+          // Ignore same-pane drags (no-op — you're dropping files onto themselves)
+          if (sourcePane === pane) return
           onDropOnPane(paths)
         }
       }}
@@ -240,7 +245,7 @@ export default function FileList({
               opacity: isDragging ? 0.4 : 1
             }}
             onMouseEnter={(e) => {
-              if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--surface-hover)'
+              if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--control-hover)'
             }}
             onMouseLeave={(e) => {
               if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent'

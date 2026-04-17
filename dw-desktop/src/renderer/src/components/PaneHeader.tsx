@@ -4,7 +4,64 @@ interface PaneHeaderProps {
   path: string
   onNavigateUp: () => void
   onRefresh: () => void
+  onNavigateTo?: (path: string) => void
   actions?: React.ReactNode
+}
+
+function Breadcrumb({ path, onNavigateTo }: { path: string; onNavigateTo: (path: string) => void }): React.JSX.Element {
+  const isWindows = path.includes('\\')
+  const sep = isWindows ? '\\' : '/'
+  const parts = path.replace(/[/\\]$/, '').split(sep).filter(Boolean)
+
+  function segmentPath(i: number): string {
+    const joined = parts.slice(0, i + 1).join(sep)
+    // Windows: "C:\Users" — no leading sep. Unix: "/Files/..." — leading sep needed.
+    return isWindows ? joined : '/' + joined
+  }
+
+  return (
+    <span
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        fontSize: 11,
+        fontFamily: 'var(--font-mono)',
+        flex: 1,
+        minWidth: 0,
+        overflow: 'hidden',
+        whiteSpace: 'nowrap'
+      }}
+    >
+      {parts.map((part, i) => {
+        const isLast = i === parts.length - 1
+        return (
+          <span key={segmentPath(i)} style={{ display: 'flex', alignItems: 'center', flexShrink: i < parts.length - 1 ? 1 : 0, minWidth: 0 }}>
+            <span style={{ color: 'var(--text-subtle)', flexShrink: 0 }}>{sep}</span>
+            <button
+              type="button"
+              onClick={() => !isLast && onNavigateTo(segmentPath(i))}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '0 1px',
+                fontSize: 11,
+                fontFamily: 'var(--font-mono)',
+                color: isLast ? 'var(--text)' : 'var(--text-subtle)',
+                cursor: isLast ? 'default' : 'pointer',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                maxWidth: isLast ? 'none' : 80
+              }}
+              title={part}
+            >
+              {part}
+            </button>
+          </span>
+        )
+      })}
+    </span>
+  )
 }
 
 export default function PaneHeader({
@@ -13,6 +70,7 @@ export default function PaneHeader({
   path,
   onNavigateUp,
   onRefresh,
+  onNavigateTo,
   actions
 }: PaneHeaderProps): React.JSX.Element {
   return (
@@ -72,21 +130,25 @@ export default function PaneHeader({
           flexShrink: 0
         }}
       />
-      <span
-        title={path}
-        style={{
-          fontSize: 11,
-          fontFamily: 'var(--font-mono)',
-          color: 'var(--text)',
-          flex: 1,
-          minWidth: 0,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap'
-        }}
-      >
-        {path}
-      </span>
+      {onNavigateTo ? (
+        <Breadcrumb path={path} onNavigateTo={onNavigateTo} />
+      ) : (
+        <span
+          title={path}
+          style={{
+            fontSize: 11,
+            fontFamily: 'var(--font-mono)',
+            color: 'var(--text)',
+            flex: 1,
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {path}
+        </span>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
         {actions}
         <button
@@ -94,17 +156,7 @@ export default function PaneHeader({
           onClick={onNavigateUp}
           title="Up"
           type="button"
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: '0 4px',
-            fontSize: 12,
-            color: 'var(--text-subtle)',
-            cursor: 'pointer',
-            transition: 'color 80ms ease-out'
-          }}
-          onMouseEnter={(e) => ((e.target as HTMLElement).style.color = 'var(--text-muted)')}
-          onMouseLeave={(e) => ((e.target as HTMLElement).style.color = 'var(--text-subtle)')}
+          className="icon-btn"
         >
           ↑
         </button>
@@ -113,17 +165,7 @@ export default function PaneHeader({
           onClick={onRefresh}
           title="Refresh"
           type="button"
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: '0 4px',
-            fontSize: 12,
-            color: 'var(--text-subtle)',
-            cursor: 'pointer',
-            transition: 'color 80ms ease-out'
-          }}
-          onMouseEnter={(e) => ((e.target as HTMLElement).style.color = 'var(--text-muted)')}
-          onMouseLeave={(e) => ((e.target as HTMLElement).style.color = 'var(--text-subtle)')}
+          className="icon-btn"
         >
           ↻
         </button>

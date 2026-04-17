@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 import { readdir, stat } from 'fs/promises'
 import { join } from 'path'
 import { getActiveEnv, getEnvs } from '../config'
-import { listFiles, uploadFiles, downloadFile, deleteRemote, copyRemote, moveRemote } from '../dw-api'
+import { listFiles, uploadFiles, downloadFile, deleteRemote, copyRemote, renameRemote } from '../dw-api'
 import type { FileEntry, IPCResult, StoredEnv } from '../../shared/types'
 
 function getEnvOrError(envName: string): { env: StoredEnv } | IPCResult {
@@ -58,14 +58,11 @@ export function registerFileHandlers(): void {
   )
 
   ipcMain.handle(
-    'files:move',
-    async (
-      _event,
-      { envName, source, destination, overwrite }: { envName: string; source: string; destination: string; overwrite: boolean }
-    ) => {
+    'files:rename',
+    async (_event, { envName, filePath, newName }: { envName: string; filePath: string; newName: string }) => {
       const result = getEnvOrError(envName)
       if ('ok' in result) return result
-      return moveRemote(result.env, source, destination, overwrite)
+      return renameRemote(result.env, filePath, newName)
     }
   )
 

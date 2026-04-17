@@ -21,10 +21,10 @@ function createWindow(): void {
     minHeight: 500,
     show: false,
     autoHideMenuBar: true,
-    title: 'DW Desktop',
+    title: 'Truvio Commerce Cloud',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 12 },
-    ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform !== 'darwin' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

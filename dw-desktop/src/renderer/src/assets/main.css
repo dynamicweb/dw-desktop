@@ -5,6 +5,8 @@
   color-scheme: dark;
 
   --bg:              #121416;
+  --pane-bg:         #1A1D21;
+  --control-hover:   #2A3138;
   --surface:         #1A1D21;
   --surface-raised:  #22262B;
   --surface-hover:   #2A3138;
@@ -51,6 +53,8 @@
   color-scheme: light;
 
   --bg:              #F5F4F0;
+  --pane-bg:         #FDFDFC;
+  --control-hover:   #F4F4F1;
   --surface:         #FFFFFF;
   --surface-raised:  #EEECE8;
   --surface-hover:   #E5E3DF;
@@ -79,6 +83,8 @@
     color-scheme: dark;
 
     --bg:              #121416;
+    --pane-bg:         #1A1D21;
+    --control-hover:   #2A3138;
     --surface:         #1A1D21;
     --surface-raised:  #22262B;
     --surface-hover:   #2A3138;
@@ -134,8 +140,34 @@ input:not(:focus-visible) { outline: none; }
 .drag-region {
   -webkit-app-region: drag;
 }
-.drag-region button, .drag-region input {
+.drag-region button, .drag-region input, .no-drag {
   -webkit-app-region: no-drag;
+}
+
+/* Small icon button (pane headers, toolbars) */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-family: var(--font-ui);
+  line-height: 1;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-subtle);
+  cursor: pointer;
+  transition: background 80ms ease-out, color 80ms ease-out;
+}
+.icon-btn:hover {
+  background: var(--control-hover);
+  color: var(--text);
+}
+.icon-btn:active {
+  background: var(--surface-raised);
 }
 
 /* Scrollbars */

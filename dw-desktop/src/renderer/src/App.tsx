@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { StoredEnv } from '../../shared/types'
 import { useEnvStore } from './stores/envStore'
 import { useFileStore } from './stores/fileStore'
 import { initTransferListeners } from './stores/transferStore'
@@ -7,10 +8,14 @@ import EnvSidebar from './components/EnvSidebar'
 import TransferQueue from './components/TransferQueue'
 import TransferLog from './components/TransferLog'
 import AddEnvModal from './components/AddEnvModal'
+import EditEnvModal from './components/EditEnvModal'
 import DebugPanel from './components/DebugPanel'
 import ThemeSwitcher from './components/ThemeSwitcher'
 import ToastContainer from './components/ToastContainer'
 import { useTheme } from './hooks/useTheme'
+import logoUrl from './assets/logo.svg'
+
+const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
 
 type Tab = 'files' | 'log' | 'debug'
 
@@ -20,13 +25,19 @@ export default function App(): React.JSX.Element {
 
   const [tab, setTab] = useState<Tab>('files')
   const [showAddEnv, setShowAddEnv] = useState(false)
+  const [editEnv, setEditEnv] = useState<StoredEnv | null>(null)
   const { theme, setTheme } = useTheme()
 
   useEffect(() => {
     async function init(): Promise<void> {
       await loadEnvs()
-      const homedir = await window.dw.fs.homedir()
-      await loadLocal(homedir)
+      // If there's no active env, seed the local pane with homedir.
+      // If there *is* an active env, DualPaneBrowser restores its saved
+      // local path (or the env's localStartPath) — don't fight that here.
+      if (!useEnvStore.getState().activeEnv) {
+        const homedir = await window.dw.fs.homedir()
+        await loadLocal(homedir, null)
+      }
     }
     const unsubscribe = initTransferListeners()
     void init()
@@ -44,71 +55,65 @@ export default function App(): React.JSX.Element {
         userSelect: 'none'
       }}
     >
-      {/* Title bar */}
+      {/* Tab bar (also acts as the drag region / title bar) */}
       <div
         className="drag-region"
         style={{
-          height: 38,
-          background: 'var(--surface)',
-          borderBottom: '1px solid var(--border)',
+          height: 40,
           display: 'flex',
           alignItems: 'center',
-          paddingLeft: 16,
-          paddingRight: 16,
-          flexShrink: 0,
-          gap: 8
-        }}
-      >
-        <span
-          style={{
-            marginLeft: 64,
-            fontSize: 11,
-            color: 'var(--text-subtle)',
-            fontFamily: 'var(--font-ui)',
-            flexGrow: 1
-          }}
-        >
-          DW Desktop
-        </span>
-        <ThemeSwitcher theme={theme} onChange={setTheme} />
-      </div>
-
-      {/* Tab bar */}
-      <div
-        style={{
-          display: 'flex',
           borderBottom: '1px solid var(--border)',
           background: 'var(--surface)',
+          paddingLeft: isMac ? 80 : 10,
+          paddingRight: 12,
+          gap: 10,
           flexShrink: 0
         }}
       >
-        {(['files', 'log', 'debug'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            style={{
-              padding: '8px 16px',
-              fontSize: 11,
-              fontFamily: 'var(--font-ui)',
-              background: 'transparent',
-              border: 'none',
-              borderBottom: tab === t ? '1px solid var(--accent)' : '1px solid transparent',
-              color: tab === t ? 'var(--text)' : 'var(--text-subtle)',
-              cursor: 'pointer',
-              transition: 'color 80ms ease-out'
-            }}
-          >
-            {t === 'files' ? 'Files' : t === 'log' ? 'Transfer log' : 'Debug'}
-          </button>
-        ))}
+        <img
+          src={logoUrl}
+          alt=""
+          draggable={false}
+          style={{ width: 20, height: 22, display: 'block', flexShrink: 0 }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexGrow: 1 }}>
+          {(['files', 'log', 'debug'] as Tab[]).map((t) => {
+            const active = tab === t
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setTab(t)}
+                className="no-drag"
+                style={{
+                  padding: '5px 10px',
+                  fontSize: 12,
+                  fontFamily: 'var(--font-ui)',
+                  background: active ? 'var(--control-hover)' : 'transparent',
+                  border: '1px solid transparent',
+                  borderRadius: 6,
+                  color: active ? 'var(--text)' : 'var(--text-subtle)',
+                  cursor: 'pointer',
+                  transition: 'background 80ms ease-out, color 80ms ease-out'
+                }}
+              >
+                {t === 'files' ? 'Files' : t === 'log' ? 'Transfer log' : 'Debug'}
+              </button>
+            )
+          })}
+        </div>
+        <div className="no-drag">
+          <ThemeSwitcher theme={theme} onChange={setTheme} />
+        </div>
       </div>
 
       {/* Main content */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <EnvSidebar onAddEnv={() => setShowAddEnv(true)} />
+        <EnvSidebar onAddEnv={() => setShowAddEnv(true)} onEditEnv={(env) => setEditEnv(env)} />
         {showAddEnv ? (
           <AddEnvModal onDone={() => setShowAddEnv(false)} />
+        ) : editEnv ? (
+          <EditEnvModal env={editEnv} onDone={() => setEditEnv(null)} />
         ) : tab === 'files' ? (
           <DualPaneBrowser />
         ) : tab === 'log' ? (

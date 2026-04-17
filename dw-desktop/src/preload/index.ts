@@ -3,6 +3,7 @@ import type {
   ConnectionStatus,
   FileEntry,
   IPCResult,
+  PaneState,
   StoredEnv,
   ThemeMode
 } from '../shared/types'
@@ -58,13 +59,8 @@ const dw = {
       ipcRenderer.invoke('files:delete', { envName, path }),
     copy: (envName: string, source: string, destination: string): Promise<IPCResult> =>
       ipcRenderer.invoke('files:copy', { envName, source, destination }),
-    move: (
-      envName: string,
-      source: string,
-      destination: string,
-      overwrite: boolean
-    ): Promise<IPCResult> =>
-      ipcRenderer.invoke('files:move', { envName, source, destination, overwrite })
+    rename: (envName: string, filePath: string, newName: string): Promise<IPCResult> =>
+      ipcRenderer.invoke('files:rename', { envName, filePath, newName })
   },
   fs: {
     list: (dirPath: string): Promise<IPCResult<FileEntry[]>> =>
@@ -98,7 +94,11 @@ const dw = {
   },
   settings: {
     getTheme: (): Promise<IPCResult<ThemeMode>> => ipcRenderer.invoke('settings:getTheme'),
-    setTheme: (theme: ThemeMode): Promise<IPCResult> => ipcRenderer.invoke('settings:setTheme', theme)
+    setTheme: (theme: ThemeMode): Promise<IPCResult> => ipcRenderer.invoke('settings:setTheme', theme),
+    getPaneState: (envName: string): Promise<IPCResult<PaneState>> =>
+      ipcRenderer.invoke('settings:getPaneState', envName),
+    setPaneState: (envName: string, patch: PaneState): Promise<IPCResult> =>
+      ipcRenderer.invoke('settings:setPaneState', { envName, patch })
   }
 }
 

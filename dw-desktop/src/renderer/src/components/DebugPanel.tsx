@@ -1,6 +1,44 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DebugEntry } from '../../../preload/index.d'
 
+function JsonView({ text }: { text: string }): React.JSX.Element {
+  let parsed: unknown
+  try { parsed = JSON.parse(text) } catch { /* not json */ }
+
+  if (parsed === undefined) {
+    return <span style={{ color: 'var(--text-muted)' }}>{text.slice(0, 2000)}</span>
+  }
+
+  const pretty = JSON.stringify(parsed, null, 2).slice(0, 4000)
+  const tokens: React.ReactNode[] = []
+  // Tokenise with a single regex pass
+  const re = /("(?:[^"\\]|\\.)*")(\s*:)?|(\btrue\b|\bfalse\b|\bnull\b)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g
+  let last = 0
+  let match: RegExpExecArray | null
+  let i = 0
+  while ((match = re.exec(pretty)) !== null) {
+    if (match.index > last) tokens.push(<span key={i++} style={{ color: 'var(--text-subtle)' }}>{pretty.slice(last, match.index)}</span>)
+    if (match[1] !== undefined) {
+      // string — key if followed by colon, value otherwise
+      if (match[2]) {
+        tokens.push(<span key={i++} style={{ color: 'var(--accent-cool)' }}>{match[1]}</span>)
+        tokens.push(<span key={i++} style={{ color: 'var(--text-subtle)' }}>{match[2]}</span>)
+      } else {
+        tokens.push(<span key={i++} style={{ color: 'var(--text)' }}>{match[1]}</span>)
+      }
+    } else if (match[3] !== undefined) {
+      const color = match[3] === 'null' ? 'var(--text-subtle)' : 'var(--accent)'
+      tokens.push(<span key={i++} style={{ color }}>{match[3]}</span>)
+    } else if (match[4] !== undefined) {
+      tokens.push(<span key={i++} style={{ color: 'var(--warning)' }}>{match[4]}</span>)
+    }
+    last = match.index + match[0].length
+  }
+  if (last < pretty.length) tokens.push(<span key={i++} style={{ color: 'var(--text-subtle)' }}>{pretty.slice(last)}</span>)
+
+  return <>{tokens}</>
+}
+
 export default function DebugPanel(): React.JSX.Element {
   const [entries, setEntries] = useState<DebugEntry[]>([])
   const [selected, setSelected] = useState<DebugEntry | null>(null)
@@ -9,7 +47,17 @@ export default function DebugPanel(): React.JSX.Element {
   useEffect(() => {
     void window.dw.debug.getAll().then((all) => setEntries(all as DebugEntry[]))
     const unsub = window.dw.on.debugEntry((entry) => {
-      setEntries((prev) => [...prev, entry as DebugEntry])
+      setEntries((prev) => {
+        const e = entry as DebugEntry
+        // Response update: same object reference mutated — find by ts+url and replace
+        const idx = prev.findIndex((p) => p.ts === e.ts && p.url === e.url && p.method === e.method)
+        if (idx !== -1) {
+          const next = [...prev]
+          next[idx] = e
+          return next
+        }
+        return [...prev, e]
+      })
     })
     return unsub
   }, [])
@@ -120,9 +168,26 @@ export default function DebugPanel(): React.JSX.Element {
               <span style={{ fontSize: 9, color: 'var(--text-subtle)', flexShrink: 0, width: 60, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {entry.ts.slice(11, 19)}
               </span>
-              <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0, width: 32 }}>
-                {entry.method}
-              </span>
+              {(() => {
+                const isPost = entry.method === 'POST'
+                const color = isPost ? 'var(--accent)' : 'var(--accent-cool)'
+                return (
+                  <span
+                    style={{
+                      fontSize: 9,
+                      fontFamily: 'var(--font-mono)',
+                      letterSpacing: '0.05em',
+                      color,
+                      border: `1px solid ${color}`,
+                      padding: '1px 5px',
+                      borderRadius: 'var(--r-sm)',
+                      flexShrink: 0
+                    }}
+                  >
+                    {entry.method}
+                  </span>
+                )
+              })()}
               <span style={{ fontSize: 10, flexShrink: 0, width: 32, color: statusColor(entry.status) }}>
                 {entry.status ?? '…'}
               </span>
@@ -162,7 +227,25 @@ export default function DebugPanel(): React.JSX.Element {
             <div style={{ display: 'flex', gap: 16 }}>
               <div>
                 <p style={{ fontSize: 9, color: 'var(--text-subtle)', marginBottom: 4 }}>Method</p>
-                <p style={{ fontSize: 10, color: 'var(--text-muted)' }}>{selected.method}</p>
+                {(() => {
+                  const isPost = selected.method === 'POST'
+                  const color = isPost ? 'var(--accent)' : 'var(--accent-cool)'
+                  return (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontFamily: 'var(--font-mono)',
+                        letterSpacing: '0.05em',
+                        color,
+                        border: `1px solid ${color}`,
+                        padding: '1px 5px',
+                        borderRadius: 'var(--r-sm)'
+                      }}
+                    >
+                      {selected.method}
+                    </span>
+                  )
+                })()}
               </div>
               <div>
                 <p style={{ fontSize: 9, color: 'var(--text-subtle)', marginBottom: 4 }}>Status</p>
@@ -173,14 +256,17 @@ export default function DebugPanel(): React.JSX.Element {
                 <p style={{ fontSize: 10, color: 'var(--text-muted)' }}>{selected.ts.slice(11, 23)}</p>
               </div>
             </div>
-            {selected.body && (
-              <div>
+            {[
+              { label: 'Request body', text: selected.requestBody },
+              { label: 'Response', text: selected.responseBody }
+            ].map(({ label, text }) => text ? (
+              <div key={label}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <p style={{ fontSize: 9, color: 'var(--text-subtle)' }}>Response (truncated)</p>
+                  <p style={{ fontSize: 9, color: 'var(--text-subtle)' }}>{label}</p>
                   <button
                     type="button"
                     style={{ fontSize: 9, color: 'var(--text-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}
-                    onClick={() => void navigator.clipboard.writeText(selected.body!)}
+                    onClick={() => void navigator.clipboard.writeText(text)}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--text-muted)')}
                     onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--text-subtle)')}
                   >
@@ -190,26 +276,21 @@ export default function DebugPanel(): React.JSX.Element {
                 <pre
                   style={{
                     fontSize: 10,
-                    color: 'var(--text-muted)',
+                    fontFamily: 'var(--font-mono)',
                     background: 'var(--surface)',
                     borderRadius: 'var(--r-sm)',
                     padding: 8,
                     overflowX: 'auto',
                     whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-all',
-                    border: '1px solid var(--border)'
+                    wordBreak: 'break-word',
+                    border: '1px solid var(--border)',
+                    margin: 0
                   }}
                 >
-                  {(() => {
-                    try {
-                      return JSON.stringify(JSON.parse(selected.body), null, 2).slice(0, 2000)
-                    } catch {
-                      return selected.body.slice(0, 2000)
-                    }
-                  })()}
+                  <JsonView text={text} />
                 </pre>
               </div>
-            )}
+            ) : null)}
           </div>
         ) : (
           <div

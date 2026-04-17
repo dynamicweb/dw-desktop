@@ -1,17 +1,31 @@
 export interface StoredEnv {
+  /** Stable identifier. Used as the key for credentials, paneState, and IPC lookups. Immutable once created. */
   name: string
+  /** User-editable label shown in the UI. Falls back to `name` when empty. */
+  displayName?: string
   host: string
   protocol: 'http' | 'https'
   authType: 'apiKey' | 'oauth' | 'password'
+  localStartPath?: string
+}
+
+export function envLabel(env: StoredEnv): string {
+  return env.displayName?.trim() || env.name
 }
 
 export type ThemeMode = 'light' | 'dark' | 'auto'
+
+export interface PaneState {
+  remotePath?: string
+  localPath?: string
+}
 
 export interface AppConfig {
   version: 1
   environments: StoredEnv[]
   activeEnv: string | null
   theme: ThemeMode
+  paneState: Record<string, PaneState>
 }
 
 export interface FileEntry {

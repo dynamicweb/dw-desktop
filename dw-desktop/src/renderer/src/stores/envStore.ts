@@ -7,6 +7,7 @@ interface EnvState {
   loadEnvs: () => Promise<void>
   addEnv: (env: StoredEnv) => Promise<void>
   removeEnv: (name: string) => Promise<void>
+  updateEnv: (env: StoredEnv) => Promise<void>
   setActiveEnv: (name: string) => Promise<void>
 }
 
@@ -35,6 +36,14 @@ export const useEnvStore = create<EnvState>((set) => ({
     set((state) => ({
       envs: state.envs.filter((e) => e.name !== name),
       activeEnv: state.activeEnv?.name === name ? null : state.activeEnv
+    }))
+  },
+
+  updateEnv: async (env) => {
+    await window.dw.env.update(env)
+    set((state) => ({
+      envs: state.envs.map((e) => (e.name === env.name ? env : e)),
+      activeEnv: state.activeEnv?.name === env.name ? env : state.activeEnv
     }))
   },
 
