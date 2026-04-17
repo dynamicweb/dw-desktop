@@ -1,7 +1,7 @@
 interface PaneHeaderProps {
   label: string
   sublabel?: string
-  breadcrumbs: string[]
+  path: string
   onNavigateUp: () => void
   onRefresh: () => void
   actions?: React.ReactNode
@@ -10,7 +10,7 @@ interface PaneHeaderProps {
 export default function PaneHeader({
   label,
   sublabel,
-  breadcrumbs,
+  path,
   onNavigateUp,
   onRefresh,
   actions
@@ -20,7 +20,7 @@ export default function PaneHeader({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
+        gap: 10,
         padding: '6px 12px',
         background: 'var(--surface)',
         borderBottom: '1px solid var(--border)',
@@ -63,31 +63,30 @@ export default function PaneHeader({
           </span>
         )}
       </span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, flex: 1, overflow: 'hidden' }}>
-        {breadcrumbs.map((segment, index) => {
-          const isLast = index === breadcrumbs.length - 1
-          return (
-            <span key={index} style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-              {index > 0 && (
-                <span style={{ color: 'var(--text-subtle)', fontSize: 11 }}>/</span>
-              )}
-              <span
-                style={{
-                  fontSize: 11,
-                  fontFamily: 'var(--font-mono)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  color: isLast ? 'var(--text)' : 'var(--text-muted)',
-                  cursor: isLast ? 'default' : 'pointer'
-                }}
-              >
-                {segment || '/'}
-              </span>
-            </span>
-          )
-        })}
-      </div>
+      <span
+        aria-hidden
+        style={{
+          width: 1,
+          alignSelf: 'stretch',
+          background: 'var(--border)',
+          flexShrink: 0
+        }}
+      />
+      <span
+        title={path}
+        style={{
+          fontSize: 11,
+          fontFamily: 'var(--font-mono)',
+          color: 'var(--text)',
+          flex: 1,
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap'
+        }}
+      >
+        {path}
+      </span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
         {actions}
         <button

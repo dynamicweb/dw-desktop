@@ -17,10 +17,13 @@ interface ContextMenuState {
   pane: 'local' | 'remote'
 }
 
-function pathBreadcrumbs(path: string): string[] {
-  const parts = path.split('/').filter(Boolean)
-  if (parts.length === 0) return ['/']
-  return ['/', ...parts]
+// Map the UI's virtual remote path (rooted at '/') to the real server
+// path that the DW Management API uses ('/Files/...'). The backend does
+// the same normalization in dw-api.ts#normalizeRemotePath — this helper
+// is purely for user-facing display and clipboard strings.
+function toDisplayRemotePath(virtualPath: string): string {
+  if (!virtualPath || virtualPath === '/') return '/Files/'
+  return `/Files${virtualPath}`
 }
 
 function parentPath(path: string): string {
@@ -215,7 +218,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
         }}
       >
         <PaneHeader
-          breadcrumbs={pathBreadcrumbs(localPath)}
+          path={localPath}
           label="Local"
           onNavigateUp={() => void loadLocal(localParentPath(localPath))}
           onRefresh={() => void loadLocal(localPath)}
@@ -364,7 +367,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
         ) : (
           <>
             <PaneHeader
-              breadcrumbs={pathBreadcrumbs(remotePath)}
+              path={toDisplayRemotePath(remotePath)}
               label={activeEnv.name}
               sublabel={activeEnv.host}
               onNavigateUp={() => void loadRemote(activeEnv.name, parentPath(remotePath))}
@@ -415,7 +418,13 @@ export default function DualPaneBrowser(): React.JSX.Element {
           hasActiveEnv={!!activeEnv}
           onClose={() => setContextMenu(null)}
           onCopy={(dest) => void handleCopy(contextMenu.entry.path, dest)}
-          onCopyPath={() => void navigator.clipboard.writeText(contextMenu.entry.path)}
+          onCopyPath={() =>
+            void navigator.clipboard.writeText(
+              contextMenu.pane === 'remote'
+                ? toDisplayRemotePath(contextMenu.entry.path)
+                : contextMenu.entry.path
+            )
+          }
           onDelete={() => void handleDelete(contextMenu.entry.path)}
           onDownload={() => void handleDownload([contextMenu.entry.path])}
           onMove={(dest) => void handleMove(contextMenu.entry.path, dest)}
