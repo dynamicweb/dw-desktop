@@ -87,7 +87,20 @@ const dw = {
       const listener = (_: Electron.IpcRendererEvent, entry: unknown): void => cb(entry)
       ipcRenderer.on('debug:entry', listener)
       return () => ipcRenderer.removeListener('debug:entry', listener)
+    },
+    updaterAvailable: (cb: (info: { version: string }) => void): (() => void) => {
+      const listener = (_: Electron.IpcRendererEvent, info: { version: string }): void => cb(info)
+      ipcRenderer.on('updater:available', listener)
+      return () => ipcRenderer.removeListener('updater:available', listener)
+    },
+    updaterDownloaded: (cb: (info: { version: string }) => void): (() => void) => {
+      const listener = (_: Electron.IpcRendererEvent, info: { version: string }): void => cb(info)
+      ipcRenderer.on('updater:downloaded', listener)
+      return () => ipcRenderer.removeListener('updater:downloaded', listener)
     }
+  },
+  updater: {
+    installNow: (): void => ipcRenderer.send('updater:installNow')
   },
   debug: {
     getAll: (): Promise<unknown[]> => ipcRenderer.invoke('debug:getAll')

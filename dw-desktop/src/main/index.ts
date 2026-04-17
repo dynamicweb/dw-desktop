@@ -1,6 +1,7 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import { initializeConfig } from './config'
 import { registerDebugHandlers } from './debug'
@@ -52,8 +53,25 @@ function createWindow(): void {
   }
 }
 
+function setupAutoUpdater(): void {
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('update-available', (info) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send('updater:available', info)
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send('updater:downloaded', info)
+  })
+
+  ipcMain.on('updater:installNow', () => {
+    autoUpdater.quitAndInstall()
+  })
+}
+
 app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('dk.dynamicweb.dw-desktop')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -67,6 +85,11 @@ app.whenReady().then(async () => {
   registerSettingsHandlers()
 
   createWindow()
+
+  if (!is.dev) {
+    setupAutoUpdater()
+    autoUpdater.checkForUpdates()
+  }
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

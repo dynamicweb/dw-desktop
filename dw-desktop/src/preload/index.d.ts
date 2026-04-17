@@ -53,6 +53,11 @@ export interface DWDesktopAPI {
     filesProgress(cb: (payload: ProgressPayload) => void): () => void
     filesDone(cb: (payload: DonePayload) => void): () => void
     debugEntry(cb: (entry: DebugEntry) => void): () => void
+    updaterAvailable(cb: (info: { version: string }) => void): () => void
+    updaterDownloaded(cb: (info: { version: string }) => void): () => void
+  }
+  updater: {
+    installNow(): void
   }
   debug: {
     getAll(): Promise<DebugEntry[]>
