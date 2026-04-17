@@ -40,7 +40,7 @@
   --surface-hover:   #2A3138;  /* Row hover, interactive hover */
   --text:            #F3F1EB;  /* Warm off-white — less clinical than gray-white */
   --text-muted:      #9AA3A9;  /* Secondary labels, metadata */
-  --text-subtle:     #5C6470;  /* Column headers, placeholders, dividers */
+  --text-subtle:     #737A86;  /* Column headers, placeholders, dividers — passes AA 3:1 on both bg and surface */
   --accent:          #D07030;  /* Copper — actions, active state, transfers, production */
   --accent-hover:    #E0813F;
   --accent-cool:     #3FADA8;  /* Teal — remote/server identity, staging environments */
@@ -68,21 +68,21 @@
   --surface-raised:  #EEECE8;
   --surface-hover:   #E5E3DF;
   --text:            #1A1A18;
-  --text-muted:      #6B6860;  /* Secondary labels — warm dark gray */
-  --text-subtle:     #B0ABA3;  /* Placeholder, column headers — lighter */
-  --accent:          #C05A18;  /* Copper darkened for legibility on light */
+  --text-muted:      #6B6860;  /* Secondary labels — warm dark gray, AA body */
+  --text-subtle:     #857F73;  /* Placeholder, column headers — darkened for AA 3:1 UI floor */
+  --accent:          #B4520F;  /* Copper darkened for AA body (4.5:1) on parchment */
   --accent-hover:    #A84A10;
-  --accent-cool:     #2A8C88;
+  --accent-cool:     #237672;  /* Teal darkened for AA body on parchment/white */
   --accent-cool-dim: #1F6A66;
-  --border:          #D8D5D0;
-  --border-strong:   #C0BBB4;
+  --border:          #C9C4BC;  /* Architectural dividers — visible on parchment */
+  --border-strong:   #A89F92;
   --danger:          #B83528;
   --success:         #527A44;
   --warning:         #9A6E1A;
   --selection:       #E8E6E2;
 
-  --env-prod-accent:    #C05A18;
-  --env-staging-accent: #2A8C88;
+  --env-prod-accent:    #B4520F;
+  --env-staging-accent: #237672;
   --env-dev-accent:     #6B6860;
 }
 ```
@@ -241,3 +241,4 @@ Pill shape (`--r-full`). 11px, font-weight 500. 6px color dot + text. Border + t
 | 2026-04-16 | App shell: env sidebar + tab bar + dual pane | The env sidebar (180px) provides persistent context. Tab bar (Files / Transfer log / Debug) keeps secondary views accessible without cluttering the main layout. Layout confirmed correct — original mockups did not follow this. |
 | 2026-04-16 | Light mode uses warm parchment (#F5F4F0), not white (#FFFFFF) | Matches the "warm mineral" aesthetic of the dark mode. Pure white would clash with the Industrial Editorial mood. |
 | 2026-04-16 | Design system created | Created by /design-consultation. Research: FileZilla, Transmit, Cyberduck, VS Code, Warp Terminal. Outside voices: Codex (gpt-5.4) + Claude subagent — all three converged on dark warm palette, copper accent, monospace for metadata. |
+| 2026-04-17 | Contrast pass — darkened `--text-subtle`, `--accent`, `--accent-cool`, `--border`, `--border-strong` in both themes | `/design-review` measured token pairs against WCAG. Light-mode `--text-subtle #B0ABA3` on `#F5F4F0` was 2.07:1 (fail AA + 3:1 UI floor), copper 4.05:1 and teal 4.03:1 (fail AA body), borders 1.33:1 (invisible). Dark-mode `--text-subtle #5C6470` on surface was 2.83:1. New values: light subtle `#857F73` (3.61:1 bg), dark subtle `#737A86` (4.27:1 bg, 3.91:1 surface), accent `#B4520F` (4.59:1), accent-cool `#237672` (4.89:1), border `#C9C4BC`, border-strong `#A89F92`. Hierarchy preserved: `--text` > `--text-muted` > `--text-subtle`. |

@@ -10,7 +10,7 @@
   --surface-hover:   #2A3138;
   --text:            #F3F1EB;
   --text-muted:      #9AA3A9;
-  --text-subtle:     #5C6470;
+  --text-subtle:     #737A86;
   --accent:          #D07030;
   --accent-hover:    #E0813F;
   --accent-cool:     #3FADA8;
@@ -56,20 +56,20 @@
   --surface-hover:   #E5E3DF;
   --text:            #1A1A18;
   --text-muted:      #6B6860;
-  --text-subtle:     #B0ABA3;
-  --accent:          #C05A18;
+  --text-subtle:     #857F73;
+  --accent:          #B4520F;
   --accent-hover:    #A84A10;
-  --accent-cool:     #2A8C88;
+  --accent-cool:     #237672;
   --accent-cool-dim: #1F6A66;
-  --border:          #D8D5D0;
-  --border-strong:   #C0BBB4;
+  --border:          #C9C4BC;
+  --border-strong:   #A89F92;
   --danger:          #B83528;
   --success:         #527A44;
   --warning:         #9A6E1A;
   --selection:       #E8E6E2;
 
-  --env-prod-accent:    #C05A18;
-  --env-staging-accent: #2A8C88;
+  --env-prod-accent:    #B4520F;
+  --env-staging-accent: #237672;
   --env-dev-accent:     #6B6860;
 }
 
@@ -84,7 +84,7 @@
     --surface-hover:   #2A3138;
     --text:            #F3F1EB;
     --text-muted:      #9AA3A9;
-    --text-subtle:     #5C6470;
+    --text-subtle:     #737A86;
     --accent:          #D07030;
     --accent-hover:    #E0813F;
     --accent-cool:     #3FADA8;
