@@ -45,8 +45,10 @@ export interface DWDesktopAPI {
     list(dirPath: string): Promise<IPCResult<FileEntry[]>>
     homedir(): Promise<string>
     openDialog(props: string[]): Promise<IPCResult<{ paths: string[] }>>
+    reveal(path: string): Promise<IPCResult>
     getPathForFile(file: File): string
   }
+  platform: NodeJS.Platform
   on: {
     filesProgress(cb: (payload: ProgressPayload) => void): () => void
     filesDone(cb: (payload: DonePayload) => void): () => void

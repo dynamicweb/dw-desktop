@@ -176,6 +176,13 @@ export default function DualPaneBrowser(): React.JSX.Element {
     setRemoteLoading(false)
   }
 
+  async function handleReveal(path: string): Promise<void> {
+    const result = await window.dw.fs.reveal(path)
+    if (!result.ok) {
+      showToast(result.error ?? 'Could not open the file in your file manager.', 'error')
+    }
+  }
+
   async function handleOpenDialog(): Promise<void> {
     const result = await window.dw.fs.openDialog(['openFile', 'multiSelections', 'openDirectory'])
     if (result.ok && result.data && result.data.paths.length > 0) {
@@ -412,6 +419,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
           onDelete={() => void handleDelete(contextMenu.entry.path)}
           onDownload={() => void handleDownload([contextMenu.entry.path])}
           onMove={(dest) => void handleMove(contextMenu.entry.path, dest)}
+          onReveal={() => void handleReveal(contextMenu.entry.path)}
           onUpload={() => void handleUpload([contextMenu.entry.path], remotePath)}
           pane={contextMenu.pane}
           x={contextMenu.x}

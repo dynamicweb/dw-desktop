@@ -72,8 +72,10 @@ const dw = {
     homedir: (): Promise<string> => ipcRenderer.invoke('fs:homedir'),
     openDialog: (props: string[]): Promise<IPCResult<{ paths: string[] }>> =>
       ipcRenderer.invoke('fs:showOpenDialog', { properties: props }),
+    reveal: (path: string): Promise<IPCResult> => ipcRenderer.invoke('fs:reveal', { path }),
     getPathForFile: (file: File): string => webUtils.getPathForFile(file)
   },
+  platform: process.platform as NodeJS.Platform,
   on: {
     filesProgress: (cb: (payload: ProgressPayload) => void): (() => void) => {
       const listener = (_: Electron.IpcRendererEvent, payload: ProgressPayload): void => cb(payload)

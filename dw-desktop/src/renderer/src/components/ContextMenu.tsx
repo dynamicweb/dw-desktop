@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { FileEntry } from '../../../shared/types'
 
+function revealLabel(): string {
+  switch (window.dw.platform) {
+    case 'darwin': return 'Reveal in Finder'
+    case 'win32': return 'Reveal in Explorer'
+    default: return 'Show in file manager'
+  }
+}
+
 interface ContextMenuProps {
   entry: FileEntry
   x: number
@@ -119,7 +127,7 @@ export default function ContextMenu({
             </ItemLi>
           )}
           <ItemLi style={itemStyle} onClick={() => { onReveal?.(); onClose() }}>
-            Reveal in Explorer
+            {revealLabel()}
           </ItemLi>
         </>
       )}

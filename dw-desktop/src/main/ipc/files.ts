@@ -1,4 +1,4 @@
-import { dialog, ipcMain } from 'electron'
+import { dialog, ipcMain, shell } from 'electron'
 import { homedir } from 'os'
 import { randomUUID } from 'crypto'
 import { readdir, stat } from 'fs/promises'
@@ -130,6 +130,15 @@ export function registerFileHandlers(): void {
       return { ok: true, data: { paths: result.canceled ? [] : result.filePaths } }
     }
   )
+
+  ipcMain.handle('fs:reveal', (_event, { path }: { path: string }): IPCResult => {
+    try {
+      shell.showItemInFolder(path)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
 
   // Keep unused references to avoid lint errors
   void randomUUID
