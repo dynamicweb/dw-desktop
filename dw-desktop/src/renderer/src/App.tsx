@@ -13,6 +13,7 @@ import DebugPanel from './components/DebugPanel'
 import ThemeSwitcher from './components/ThemeSwitcher'
 import ToastContainer from './components/ToastContainer'
 import { useTheme } from './hooks/useTheme'
+import UpdateBanner from './components/UpdateBanner'
 import logoUrl from './assets/logo.svg'
 
 const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
@@ -123,6 +124,7 @@ export default function App(): React.JSX.Element {
         )}
       </div>
 
+      <UpdateBanner />
       <TransferQueue />
       <ToastContainer />
     </div>
