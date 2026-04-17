@@ -57,7 +57,7 @@ export default function TransferLog(): React.JSX.Element {
           <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                {['Dir', 'Filename', 'Remote path', 'Local path', 'Status'].map((h) => (
+                {['Direction', 'Filename', 'Remote path', 'Local path', 'Status'].map((h) => (
                   <th
                     key={h}
                     style={{
@@ -83,10 +83,26 @@ export default function TransferLog(): React.JSX.Element {
                   onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--surface-hover)')}
                   onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                 >
-                  <td style={{ padding: '6px 16px' }}>
-                    <span style={{ color: job.direction === 'upload' ? 'var(--accent)' : 'var(--accent-cool)' }}>
-                      {job.direction === 'upload' ? '↑' : '↓'}
-                    </span>
+                  <td style={{ padding: '6px 16px', whiteSpace: 'nowrap' }}>
+                    {(() => {
+                      const color = job.direction === 'upload' ? 'var(--accent)' : 'var(--accent-cool)'
+                      const label = job.direction === 'upload' ? 'LOCAL \u2192 REMOTE' : 'REMOTE \u2192 LOCAL'
+                      return (
+                        <span
+                          style={{
+                            fontSize: 9,
+                            fontFamily: 'var(--font-mono)',
+                            letterSpacing: '0.05em',
+                            color,
+                            border: `1px solid ${color}`,
+                            padding: '1px 5px',
+                            borderRadius: 'var(--r-sm)'
+                          }}
+                        >
+                          {label}
+                        </span>
+                      )
+                    })()}
                   </td>
                   <td
                     style={{

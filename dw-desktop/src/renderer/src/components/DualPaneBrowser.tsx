@@ -100,40 +100,49 @@ export default function DualPaneBrowser(): React.JSX.Element {
       )
       return
     }
-    const jobId = nanoid()
-    const label =
-      localPaths.length === 1
-        ? (localPaths[0].split('/').pop() ?? localPaths[0].split('\\').pop() ?? localPaths[0])
-        : `${localPaths.length} files`
-    addJob({
-      id: jobId,
-      direction: 'upload',
-      label,
-      remotePath: targetRemotePath,
-      localPath: localPaths.length === 1 ? localPaths[0] : localPath,
-      status: 'queued',
-      transferred: 0,
-      total: localPaths.length
-    })
-    window.dw.files.upload(activeEnv.name, localPaths, targetRemotePath, overwrite, jobId)
+    const batchId = nanoid()
+    for (const p of localPaths) {
+      const jobId = nanoid()
+      const label = p.split('/').pop() ?? p.split('\\').pop() ?? p
+      addJob({
+        id: jobId,
+        batchId,
+        direction: 'upload',
+        label,
+        remotePath: targetRemotePath,
+        localPath: p,
+        status: 'queued',
+        transferred: 0,
+        total: 1
+      })
+      window.dw.files.upload(activeEnv.name, [p], targetRemotePath, overwrite, jobId)
+    }
   }
 
-  async function handleDownload(remotePath: string): Promise<void> {
+  async function handleDownload(remotePaths: string[]): Promise<void> {
     if (!activeEnv) return
-    const jobId = nanoid()
-    const label = remotePath.split('/').filter(Boolean).pop() ?? remotePath
-    const result = await window.dw.files.download(activeEnv.name, remotePath, localPath)
-    addJob({
-      id: jobId,
-      direction: 'download',
-      label,
-      remotePath,
-      localPath,
-      status: result.ok ? 'done' : 'error',
-      transferred: result.ok ? 1 : 0,
-      total: 1,
-      error: result.error
-    })
+    const batchId = nanoid()
+    for (const remotePath of remotePaths) {
+      const jobId = nanoid()
+      const label = remotePath.split('/').filter(Boolean).pop() ?? remotePath
+      addJob({
+        id: jobId,
+        batchId,
+        direction: 'download',
+        label,
+        remotePath,
+        localPath,
+        status: 'active',
+        transferred: 0,
+        total: 1
+      })
+      const result = await window.dw.files.download(activeEnv.name, remotePath, localPath)
+      useTransferStore.getState().updateJob(jobId, {
+        status: result.ok ? 'done' : 'error',
+        transferred: result.ok ? 1 : 0,
+        error: result.error
+      })
+    }
   }
 
   async function handleDelete(path: string): Promise<void> {
@@ -375,7 +384,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
                 const raw = e.dataTransfer.getData('application/x-dw-paths')
                 if (raw) {
                   const { paths } = JSON.parse(raw) as { paths: string[]; pane: string }
-                  for (const p of paths) void handleDownload(p)
+                  void handleDownload(paths)
                 }
               }}
             >
@@ -394,7 +403,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
           onCopy={(dest) => void handleCopy(contextMenu.entry.path, dest)}
           onCopyPath={() => void navigator.clipboard.writeText(contextMenu.entry.path)}
           onDelete={() => void handleDelete(contextMenu.entry.path)}
-          onDownload={() => void handleDownload(contextMenu.entry.path)}
+          onDownload={() => void handleDownload([contextMenu.entry.path])}
           onMove={(dest) => void handleMove(contextMenu.entry.path, dest)}
           onUpload={() => void handleUpload([contextMenu.entry.path], remotePath)}
           pane={contextMenu.pane}

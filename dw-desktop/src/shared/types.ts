@@ -24,6 +24,7 @@ export interface FileEntry {
 
 export interface TransferJob {
   id: string
+  batchId: string
   direction: 'upload' | 'download'
   label: string
   remotePath: string
