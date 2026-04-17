@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { FileEntry } from '../../../shared/types'
 import { useEnvStore } from '../stores/envStore'
 import { useFileStore } from '../stores/fileStore'
+import { useToastStore } from '../stores/toastStore'
 import { useTransferStore } from '../stores/transferStore'
 import AddEnvModal from './AddEnvModal'
 import ContextMenu from './ContextMenu'
@@ -48,6 +49,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const { remoteEntries, remotePath, localEntries, localPath, selected, loadRemote, loadLocal, setSelected } =
     useFileStore()
   const { addJob } = useTransferStore()
+  const showToast = useToastStore((s) => s.show)
 
   const [remoteLoading, setRemoteLoading] = useState(false)
   const [localLoading, setLocalLoading] = useState(false)
@@ -91,6 +93,13 @@ export default function DualPaneBrowser(): React.JSX.Element {
 
   async function handleUpload(localPaths: string[], targetRemotePath: string): Promise<void> {
     if (!activeEnv) return
+    if (targetRemotePath === '/' || targetRemotePath === '') {
+      showToast(
+        'Uploads to the remote root aren\u2019t allowed. Open a folder (Files, Images, Templates\u2026) and drop there.',
+        'warning'
+      )
+      return
+    }
     const jobId = nanoid()
     const label =
       localPaths.length === 1
