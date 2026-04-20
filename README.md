@@ -72,9 +72,55 @@ DW Desktop is ideal when you need to:
 
 ## Getting started
 
-Download the app, add your environment, and you’re ready to go.
+### 1. Download and install
 
-No additional setup required.
+Download the app from the [Releases page](https://github.com/dynamicweb/dw-desktop/releases/latest) and install it.
+
+### 2. Add an environment
+
+Click **+ Add environment** in the sidebar, then fill in:
+
+- **Name** — a label for the environment (e.g. "My solution staging")
+- **Host** — the URL of your DW10 solution (e.g. `https://mysite.example.com`)
+- **Local start folder** *(optional)* — a default local folder to open for this environment
+
+### 3. Choose an authentication method
+
+Click **Next** to reach the Authentication step. Three methods are available:
+
+#### OAuth (recommended for most setups)
+
+Uses the OAuth 2.0 Client Credentials flow — no user password stored, tokens are short-lived.
+
+**When to use:** Preferred for all interactive use. More secure than API keys and easier to revoke.
+
+**How to set up in DW10:**
+1. Go to **Settings → System → Developer → OAuth Clients**
+2. Click **Add client**
+3. Set **Grant type** to **Client credentials**
+4. Copy the generated **Client ID** and **Client secret** into the app
+
+> Full guide: [OAuth Clients — Dynamicweb docs](https://doc.dynamicweb.dev/manual/dynamicweb10/settings/system/developer/oauth.html)
+
+#### API key
+
+A static token tied to a specific DW10 user account.
+
+**When to use:** When OAuth is not available on your solution version, or for quick testing. Less flexible than OAuth — the key stays valid until manually deleted.
+
+**How to set up in DW10:**
+1. Go to **Settings → System → Developer → API Keys**
+2. Click **Add API key**
+3. Assign it to a user with sufficient file permissions
+4. Copy the key into the app
+
+> Full guide: [API Keys — Dynamicweb docs](https://doc.dynamicweb.dev/manual/dynamicweb10/settings/system/developer/api-keys.html)
+
+#### Username & password
+
+Authenticates directly with a DW10 backend user account.
+
+**When to use:** As a fallback when neither OAuth nor API keys are available. Not recommended for shared or long-running setups.
 
 
 ## Contributing
