@@ -70,6 +70,21 @@ DW Desktop is ideal when you need to:
 - Quickly inspect or fix something directly on a remote instance
 - Work across multiple environments without juggling credentials or tools
 
+## Need a CLI instead?
+
+If you're working in a terminal, automating deployments, or running file operations from a CI/CD pipeline, the **[DynamicWeb CLI](https://github.com/dynamicweb/CLI)** covers the same file workflows — plus queries, commands, and add-in installs — entirely from the command line.
+
+```sh
+# Upload files in a pipeline
+dw files ./dist templates -i -r --output json \
+  --host your-solution.example.com \
+  --auth oauth \
+  --clientIdEnv DW_CLIENT_ID \
+  --clientSecretEnv DW_CLIENT_SECRET
+```
+
+The CLI supports OAuth client credentials for headless and CI/CD use, and returns structured JSON output that scripts can consume directly.
+
 ## Getting started
 
 Download the app, add your environment, and you’re ready to go.
@@ -138,7 +153,7 @@ sudo apt install -y libnspr4 libnss3 libasound2 libsecret-1-0
 ### Tech stack
 
 | Layer | Technology |
-|||
+|---|---|
 | Shell | Electron |
 | Bundler | electron-vite |
 | UI | React 19 + TypeScript |
