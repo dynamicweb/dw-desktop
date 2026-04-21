@@ -279,6 +279,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
     <div ref={containerRef} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
       {/* Local pane */}
       <div
+        onMouseDown={(e) => { if (e.button === 3) { e.preventDefault(); void loadLocal(localParentPath(localPath)) } }}
         style={{
           display: 'flex',
           flexDirection: 'column',
@@ -413,7 +414,10 @@ export default function DualPaneBrowser(): React.JSX.Element {
       />
 
       {/* Remote pane */}
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--pane-bg)' }}>
+      <div
+        onMouseDown={(e) => { if (e.button === 3 && activeEnv) { e.preventDefault(); void loadRemote(activeEnv.name, parentPath(remotePath)) } }}
+        style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--pane-bg)' }}
+      >
         {!activeEnv ? (
           showAddEnv ? (
             <AddEnvModal onDone={() => setShowAddEnv(false)} />
