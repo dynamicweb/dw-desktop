@@ -58,6 +58,16 @@ jobs:
         working-directory: dw-desktop
         run: npm run build:mac -- --publish never
 
+      - name: Ad-hoc sign (fixes Team ID mismatch on macOS 26+)
+        run: |
+          DMG=$(ls dw-desktop/dist/*.dmg | head -1)
+          hdiutil attach "$DMG" -mountpoint /Volumes/DWDesktop -nobrowse -quiet
+          cp -R "/Volumes/DWDesktop/DW Desktop.app" /tmp/DWDesktop.app
+          hdiutil detach /Volumes/DWDesktop -quiet
+          codesign --deep --force --sign - /tmp/DWDesktop.app
+          hdiutil create -volname "DW Desktop" -srcfolder /tmp/DWDesktop.app -ov -format UDZO /tmp/DWDesktop-signed.dmg
+          mv /tmp/DWDesktop-signed.dmg "$DMG"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
