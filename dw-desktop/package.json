@@ -1,6 +1,6 @@
 {
   "name": "dw-desktop",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Desktop GUI for DynamicWeb 10 management — file transfers, environments, authentication",
   "main": "./out/main/index.js",
   "author": "Dynamicweb",
