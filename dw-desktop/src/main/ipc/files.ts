@@ -35,6 +35,26 @@ async function listLocalEntries(dirPath: string): Promise<FileEntry[]> {
   })
 }
 
+/**
+ * Enumerates available drives on Windows (A:\ through Z:\). Detects each by
+ * attempting `stat()` on its root in parallel. Empty array on non-Windows.
+ */
+async function listWindowsDrives(): Promise<FileEntry[]> {
+  if (process.platform !== 'win32') return []
+  const checks: Promise<FileEntry | null>[] = []
+  for (let code = 'A'.charCodeAt(0); code <= 'Z'.charCodeAt(0); code++) {
+    const letter = String.fromCharCode(code)
+    const root = `${letter}:\\`
+    checks.push(
+      stat(root)
+        .then(() => ({ name: `${letter}:`, path: root, type: 'directory' as const }))
+        .catch(() => null)
+    )
+  }
+  const results = await Promise.all(checks)
+  return results.filter((d): d is FileEntry => d !== null)
+}
+
 export function registerFileHandlers(): void {
   ipcMain.handle('files:list', async (_event, { envName, path }: { envName: string; path: string }) => {
     const result = getEnvOrError(envName)
@@ -108,6 +128,13 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle('fs:list', async (_event, { dirPath }: { dirPath: string }): Promise<IPCResult<FileEntry[]>> => {
     try {
+      // Empty path = "above the drive root" view (Windows drives or Unix /).
+      if (!dirPath) {
+        if (process.platform === 'win32') {
+          return { ok: true, data: await listWindowsDrives() }
+        }
+        return { ok: true, data: await listLocalEntries('/') }
+      }
       return { ok: true, data: await listLocalEntries(dirPath) }
     } catch (err) {
       return { ok: false, error: (err as Error).message }

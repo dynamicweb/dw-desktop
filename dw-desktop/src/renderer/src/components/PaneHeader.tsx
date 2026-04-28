@@ -9,14 +9,35 @@ interface PaneHeaderProps {
 }
 
 function Breadcrumb({ path, onNavigateTo }: { path: string; onNavigateTo: (path: string) => void }): React.JSX.Element {
-  const isWindows = path.includes('\\')
+  const isWindows = path.includes('\\') || /^[A-Za-z]:/.test(path)
   const sep = isWindows ? '\\' : '/'
-  const parts = path.replace(/[/\\]$/, '').split(sep).filter(Boolean)
+  const parts = path.replace(/[/\\]$/, '').split(/[\\/]/).filter(Boolean)
 
   function segmentPath(i: number): string {
     const joined = parts.slice(0, i + 1).join(sep)
-    // Windows: "C:\Users" — no leading sep. Unix: "/Files/..." — leading sep needed.
-    return isWindows ? joined : '/' + joined
+    if (isWindows) {
+      // A bare drive letter (C:) needs a trailing separator to be a valid root path.
+      if (i === 0 && /^[A-Za-z]:$/.test(joined)) return joined + sep
+      return joined
+    }
+    return '/' + joined
+  }
+
+  // Empty path = drives view. Show a static "Drives" label.
+  if (parts.length === 0) {
+    return (
+      <span
+        style={{
+          fontSize: 11,
+          fontFamily: 'var(--font-mono)',
+          color: 'var(--text)',
+          flex: 1,
+          minWidth: 0
+        }}
+      >
+        Drives
+      </span>
+    )
   }
 
   return (
@@ -32,6 +53,27 @@ function Breadcrumb({ path, onNavigateTo }: { path: string; onNavigateTo: (path:
         whiteSpace: 'nowrap'
       }}
     >
+      {/* On Windows, a leading "Drives" crumb returns to the drive list. */}
+      {isWindows && (
+        <span style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={() => onNavigateTo('')}
+            title="Drives"
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: '0 1px',
+              fontSize: 11,
+              fontFamily: 'var(--font-mono)',
+              color: 'var(--text-subtle)',
+              cursor: 'pointer'
+            }}
+          >
+            Drives
+          </button>
+        </span>
+      )}
       {parts.map((part, i) => {
         const isLast = i === parts.length - 1
         return (
