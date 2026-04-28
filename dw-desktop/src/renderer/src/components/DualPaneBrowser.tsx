@@ -40,11 +40,25 @@ function parentPath(path: string): string {
 }
 
 function localParentPath(path: string): string {
+  if (!path) return ''
+  // Windows drive root (C:\, C:/, or C:) → step up to the drives view.
+  if (/^[A-Za-z]:[\\/]?$/.test(path)) return ''
+  // Unix root has no parent.
+  if (path === '/') return '/'
+
   const sep = path.includes('\\') ? '\\' : '/'
-  const parts = path.split(sep)
-  if (parts.length <= 1) return path
-  const parent = parts.slice(0, -1).join(sep)
-  return parent || path
+  const parts = path.split(sep).filter(Boolean)
+  parts.pop()
+
+  if (parts.length === 0) {
+    // Walked off a Unix path → root. Walked off a relative path → drives.
+    return sep === '/' ? '/' : ''
+  }
+  // Drive letter alone needs a trailing separator to be listable.
+  if (parts.length === 1 && /^[A-Za-z]:$/.test(parts[0])) {
+    return parts[0] + sep
+  }
+  return sep === '/' ? '/' + parts.join('/') : parts.join(sep)
 }
 
 export default function DualPaneBrowser(): React.JSX.Element {

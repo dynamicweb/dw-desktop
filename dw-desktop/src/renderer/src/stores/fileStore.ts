@@ -42,7 +42,9 @@ export const useFileStore = create<FileState>((set, get) => ({
     if (result.ok) {
       set({ localEntries: result.data ?? [], localPath: path })
       const targetEnv = envName === undefined ? get().remoteEnvName : envName
-      if (targetEnv) persistLocal(targetEnv, path)
+      // Skip persisting the empty (drives-view) path — it's transient navigation,
+      // not a meaningful "last folder" to restore on next open.
+      if (targetEnv && path) persistLocal(targetEnv, path)
     }
   },
 
