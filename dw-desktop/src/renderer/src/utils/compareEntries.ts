@@ -12,9 +12,11 @@ export function diffKey(entry: FileEntry): string {
  * Compares local and remote entries. Returns a map keyed by `${type}:${nameLowercase}`
  * so callers can look up the status of any entry on either side with diffKey(entry).
  *
- * Matching is by (name, type). For matched files, equality is based on size and
- * modified timestamp. Directories are always 'identical' when both sides have a
- * folder of the same name (recursive comparison is out of scope here).
+ * Matching is by (name, type). For matched files, equality is byte-size only —
+ * modified timestamps are deliberately ignored because they diverge by upload
+ * time, clock skew, and local restores even when content is identical, producing
+ * false-positive "different" flags. Directories that match by name are always
+ * 'identical' (no recursive comparison).
  */
 export function compareEntries(
   local: FileEntry[],
@@ -37,9 +39,7 @@ export function compareEntries(
       result.set(key, 'identical')
       continue
     }
-    const sizeMatch = l.size === r.size
-    const mtimeMatch = !!l.modified && !!r.modified && l.modified === r.modified
-    result.set(key, sizeMatch && mtimeMatch ? 'identical' : 'different')
+    result.set(key, l.size === r.size ? 'identical' : 'different')
   }
 
   for (const [key] of remoteByKey) {
