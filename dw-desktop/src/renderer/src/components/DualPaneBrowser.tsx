@@ -5,7 +5,9 @@ import { useEnvStore } from '../stores/envStore'
 import { useFileStore } from '../stores/fileStore'
 import { useToastStore } from '../stores/toastStore'
 import { useTransferStore } from '../stores/transferStore'
+import { compareEntries, getDwRelativeTail } from '../utils/compareEntries'
 import AddEnvModal from './AddEnvModal'
+import CompareToolbar from './CompareToolbar'
 import ContextMenu from './ContextMenu'
 import FileList from './FileList'
 import PaneHeader from './PaneHeader'
@@ -56,9 +58,15 @@ export default function DualPaneBrowser(): React.JSX.Element {
     localEntries,
     localPath,
     selected,
+    compareMode,
+    diffMap,
+    highlightedStatuses,
     loadRemote,
     loadLocal,
-    setSelected
+    setSelected,
+    setCompareMode,
+    setDiffMap,
+    toggleHighlightedStatus
   } = useFileStore()
   const { addJob } = useTransferStore()
   const showToast = useToastStore((s) => s.show)
@@ -150,6 +158,26 @@ export default function DualPaneBrowser(): React.JSX.Element {
     })
     setConflictCount(conflicts.length)
   }, [selected, remoteEntries])
+
+  useEffect(() => {
+    if (compareMode === 'off') {
+      setDiffMap(new Map())
+      return
+    }
+    if (compareMode === 'on') {
+      setDiffMap(compareEntries(localEntries, remoteEntries))
+      return
+    }
+    // auto: only compare when DW-relative path tails match (e.g. local .../Files/Templates
+    // and remote /Files/Templates both resolve to /files/templates)
+    const localTail = getDwRelativeTail(localPath)
+    const remoteTail = getDwRelativeTail(toDisplayRemotePath(remotePath))
+    if (localTail && remoteTail && localTail === remoteTail) {
+      setDiffMap(compareEntries(localEntries, remoteEntries))
+    } else {
+      setDiffMap(new Map())
+    }
+  }, [compareMode, localEntries, remoteEntries, localPath, remotePath, setDiffMap])
 
   async function navigateLocal(entry: FileEntry): Promise<void> {
     if (entry.type !== 'directory') return
@@ -280,6 +308,16 @@ export default function DualPaneBrowser(): React.JSX.Element {
   }
 
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+      {activeEnv && (
+        <CompareToolbar
+          mode={compareMode}
+          onModeChange={setCompareMode}
+          diffMap={diffMap}
+          highlightedStatuses={highlightedStatuses}
+          onToggleStatus={toggleHighlightedStatus}
+        />
+      )}
     <div ref={containerRef} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
       {/* Local pane */}
       <div
@@ -310,8 +348,10 @@ export default function DualPaneBrowser(): React.JSX.Element {
           }
         />
         <FileList
+          diffMap={diffMap}
           dropTarget
           entries={localEntries}
+          highlightedStatuses={highlightedStatuses}
           loading={localLoading}
           onContextMenu={(entry, x, y) => setContextMenu({ entry, x, y, pane: 'local' })}
           onDoubleClick={(entry) => void navigateLocal(entry)}
@@ -502,8 +542,10 @@ export default function DualPaneBrowser(): React.JSX.Element {
               }
             />
             <FileList
+              diffMap={diffMap}
               dropTarget
               entries={remoteEntries}
+              highlightedStatuses={highlightedStatuses}
               loading={remoteLoading}
               onContextMenu={(entry, x, y) => setContextMenu({ entry, x, y, pane: 'remote' })}
               onDoubleClick={(entry) => void navigateRemote(entry)}
@@ -529,6 +571,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
             </div>
           </>
         )}
+      </div>
       </div>
 
       {/* Context menu */}
