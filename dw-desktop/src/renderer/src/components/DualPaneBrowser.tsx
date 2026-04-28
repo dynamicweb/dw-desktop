@@ -402,8 +402,12 @@ export default function DualPaneBrowser(): React.JSX.Element {
       <div
         role="separator"
         aria-orientation="vertical"
-        title="Drag to resize"
+        title="Drag to resize · Double-click to reset"
         onPointerDown={handleDividerPointerDown}
+        onDoubleClick={() => {
+          setSplitRatio(0.5)
+          localStorage.setItem('dw.splitRatio', '0.5')
+        }}
         style={{
           flex: '0 0 4px',
           cursor: 'col-resize',
