@@ -87,7 +87,9 @@ export default function DualPaneBrowser(): React.JSX.Element {
 
   const [remoteLoading, setRemoteLoading] = useState(false)
   const [localLoading, setLocalLoading] = useState(false)
+  const [localBackStack, setLocalBackStack] = useState<string[]>([])
   const [localForwardStack, setLocalForwardStack] = useState<string[]>([])
+  const [remoteBackStack, setRemoteBackStack] = useState<string[]>([])
   const [remoteForwardStack, setRemoteForwardStack] = useState<string[]>([])
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [showAddEnv, setShowAddEnv] = useState(false)
@@ -193,20 +195,80 @@ export default function DualPaneBrowser(): React.JSX.Element {
     }
   }, [compareMode, localEntries, remoteEntries, localPath, remotePath, setDiffMap])
 
-  async function navigateLocal(entry: FileEntry): Promise<void> {
-    if (entry.type !== 'directory') return
+  // User-initiated navigation: push the current path onto back, clear forward.
+  async function navigateLocalTo(path: string): Promise<void> {
+    if (path === localPath) return
+    setLocalBackStack((b) => [localPath, ...b])
     setLocalForwardStack([])
     setLocalLoading(true)
-    await loadLocal(entry.path)
+    await loadLocal(path)
     setLocalLoading(false)
+  }
+
+  // Back/forward use the history stacks rather than the parent path.
+  async function goBackLocal(): Promise<void> {
+    setLocalBackStack((b) => {
+      if (b.length === 0) return b
+      const [prev, ...rest] = b
+      setLocalForwardStack((f) => [localPath, ...f])
+      setLocalLoading(true)
+      void loadLocal(prev).finally(() => setLocalLoading(false))
+      return rest
+    })
+  }
+
+  async function goForwardLocal(): Promise<void> {
+    setLocalForwardStack((f) => {
+      if (f.length === 0) return f
+      const [next, ...rest] = f
+      setLocalBackStack((b) => [localPath, ...b])
+      setLocalLoading(true)
+      void loadLocal(next).finally(() => setLocalLoading(false))
+      return rest
+    })
+  }
+
+  async function navigateRemoteTo(path: string): Promise<void> {
+    if (!activeEnv || path === remotePath) return
+    setRemoteBackStack((b) => [remotePath, ...b])
+    setRemoteForwardStack([])
+    setRemoteLoading(true)
+    await loadRemote(activeEnv.name, path)
+    setRemoteLoading(false)
+  }
+
+  async function goBackRemote(): Promise<void> {
+    if (!activeEnv) return
+    setRemoteBackStack((b) => {
+      if (b.length === 0) return b
+      const [prev, ...rest] = b
+      setRemoteForwardStack((f) => [remotePath, ...f])
+      setRemoteLoading(true)
+      void loadRemote(activeEnv.name, prev).finally(() => setRemoteLoading(false))
+      return rest
+    })
+  }
+
+  async function goForwardRemote(): Promise<void> {
+    if (!activeEnv) return
+    setRemoteForwardStack((f) => {
+      if (f.length === 0) return f
+      const [next, ...rest] = f
+      setRemoteBackStack((b) => [remotePath, ...b])
+      setRemoteLoading(true)
+      void loadRemote(activeEnv.name, next).finally(() => setRemoteLoading(false))
+      return rest
+    })
+  }
+
+  async function navigateLocal(entry: FileEntry): Promise<void> {
+    if (entry.type !== 'directory') return
+    await navigateLocalTo(entry.path)
   }
 
   async function navigateRemote(entry: FileEntry): Promise<void> {
     if (!activeEnv || entry.type !== 'directory') return
-    setRemoteForwardStack([])
-    setRemoteLoading(true)
-    await loadRemote(activeEnv.name, entry.path)
-    setRemoteLoading(false)
+    await navigateRemoteTo(entry.path)
   }
 
   async function handleUpload(localPaths: string[], targetRemotePath: string): Promise<void> {
@@ -336,8 +398,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
       {/* Local pane */}
       <div
         onMouseDown={(e) => {
-          if (e.button === 3) { e.preventDefault(); setLocalForwardStack(f => [localPath, ...f]); void loadLocal(localParentPath(localPath)) }
-          if (e.button === 4 && localForwardStack.length > 0) { e.preventDefault(); const next = localForwardStack[0]; setLocalForwardStack(f => f.slice(1)); void loadLocal(next) }
+          if (e.button === 3 && localBackStack.length > 0) { e.preventDefault(); void goBackLocal() }
+          if (e.button === 4 && localForwardStack.length > 0) { e.preventDefault(); void goForwardLocal() }
         }}
         style={{
           display: 'flex',
@@ -352,9 +414,9 @@ export default function DualPaneBrowser(): React.JSX.Element {
         <PaneHeader
           path={localPath}
           label="Local"
-          onNavigateUp={() => { setLocalForwardStack([]); void loadLocal(localParentPath(localPath)) }}
+          onNavigateUp={() => void navigateLocalTo(localParentPath(localPath))}
           onRefresh={() => void loadLocal(localPath)}
-          onNavigateTo={(p) => { setLocalForwardStack([]); void loadLocal(p) }}
+          onNavigateTo={(p) => void navigateLocalTo(p)}
           actions={
             localSelected.length > 1 ? (
               <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{localSelected.length} selected</span>
@@ -481,8 +543,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
       {/* Remote pane */}
       <div
         onMouseDown={(e) => {
-          if (e.button === 3 && activeEnv) { e.preventDefault(); setRemoteForwardStack(f => [remotePath, ...f]); void loadRemote(activeEnv.name, parentPath(remotePath)) }
-          if (e.button === 4 && remoteForwardStack.length > 0) { e.preventDefault(); const next = remoteForwardStack[0]; setRemoteForwardStack(f => f.slice(1)); void loadRemote(activeEnv!.name, next) }
+          if (e.button === 3 && activeEnv && remoteBackStack.length > 0) { e.preventDefault(); void goBackRemote() }
+          if (e.button === 4 && activeEnv && remoteForwardStack.length > 0) { e.preventDefault(); void goForwardRemote() }
         }}
         style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--pane-bg)' }}
       >
@@ -539,15 +601,14 @@ export default function DualPaneBrowser(): React.JSX.Element {
               path={toDisplayRemotePath(remotePath)}
               label={envLabel(activeEnv)}
               sublabel={activeEnv.host}
-              onNavigateUp={() => { setRemoteForwardStack([]); void loadRemote(activeEnv.name, parentPath(remotePath)) }}
+              onNavigateUp={() => void navigateRemoteTo(parentPath(remotePath))}
               onRefresh={() => {
                 setRemoteLoading(true)
                 void loadRemote(activeEnv.name, remotePath).finally(() => setRemoteLoading(false))
               }}
               onNavigateTo={(displayPath) => {
                 const virtual = displayPath.replace(/^\/Files/, '') || '/'
-                setRemoteForwardStack([])
-                void loadRemote(activeEnv.name, virtual)
+                void navigateRemoteTo(virtual)
               }}
               actions={
                 remoteSelected.length > 1 ? (
