@@ -36,6 +36,10 @@ export interface FileEntry {
   modified?: string
 }
 
+export type DiffStatus = 'local-only' | 'remote-only' | 'different' | 'identical'
+
+export type CompareMode = 'off' | 'auto' | 'on'
+
 export interface TransferJob {
   id: string
   batchId: string

@@ -1,5 +1,29 @@
 import { create } from 'zustand'
-import type { FileEntry } from '../../../shared/types'
+import type { CompareMode, DiffStatus, FileEntry } from '../../../shared/types'
+
+const COMPARE_MODE_KEY = 'dw.compareMode'
+const HIGHLIGHTED_STATUSES_KEY = 'dw.highlightedStatuses'
+const DEFAULT_HIGHLIGHTED: DiffStatus[] = ['different', 'remote-only']
+
+function loadCompareMode(): CompareMode {
+  const v = localStorage.getItem(COMPARE_MODE_KEY)
+  return v === 'off' || v === 'on' ? v : 'auto'
+}
+
+function loadHighlighted(): DiffStatus[] {
+  try {
+    const raw = localStorage.getItem(HIGHLIGHTED_STATUSES_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown
+      if (Array.isArray(parsed)) return parsed.filter((s): s is DiffStatus =>
+        s === 'local-only' || s === 'remote-only' || s === 'different' || s === 'identical'
+      )
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_HIGHLIGHTED
+}
 
 interface FileState {
   remoteEntries: FileEntry[]
@@ -8,9 +32,15 @@ interface FileState {
   localEntries: FileEntry[]
   localPath: string
   selected: { pane: 'local' | 'remote'; paths: string[] }
+  compareMode: CompareMode
+  diffMap: Map<string, DiffStatus>
+  highlightedStatuses: DiffStatus[]
   loadRemote: (envName: string, path: string) => Promise<void>
   loadLocal: (path: string, envName?: string | null) => Promise<void>
   setSelected: (pane: 'local' | 'remote', paths: string[]) => void
+  setCompareMode: (mode: CompareMode) => void
+  setDiffMap: (map: Map<string, DiffStatus>) => void
+  toggleHighlightedStatus: (status: DiffStatus) => void
 }
 
 function persistRemote(envName: string, remotePath: string): void {
@@ -28,6 +58,9 @@ export const useFileStore = create<FileState>((set, get) => ({
   localEntries: [],
   localPath: '',
   selected: { pane: 'local', paths: [] },
+  compareMode: loadCompareMode(),
+  diffMap: new Map(),
+  highlightedStatuses: loadHighlighted(),
 
   loadRemote: async (envName, path) => {
     const result = await window.dw.files.list(envName, path)
@@ -48,5 +81,23 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   setSelected: (pane, paths) => {
     set({ selected: { pane, paths } })
+  },
+
+  setCompareMode: (mode) => {
+    localStorage.setItem(COMPARE_MODE_KEY, mode)
+    set({ compareMode: mode })
+  },
+
+  setDiffMap: (map) => {
+    set({ diffMap: map })
+  },
+
+  toggleHighlightedStatus: (status) => {
+    const current = get().highlightedStatuses
+    const next = current.includes(status)
+      ? current.filter((s) => s !== status)
+      : [...current, status]
+    localStorage.setItem(HIGHLIGHTED_STATUSES_KEY, JSON.stringify(next))
+    set({ highlightedStatuses: next })
   }
 }))
