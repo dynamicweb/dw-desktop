@@ -19,13 +19,21 @@ async function listLocalEntries(dirPath: string): Promise<FileEntry[]> {
   const entries = await Promise.all(
     children.map(async (child) => {
       const childPath = join(dirPath, child.name)
-      const childStat = await stat(childPath)
-      return {
-        name: child.name,
-        path: childPath,
-        type: (child.isDirectory() ? 'directory' : 'file') as 'file' | 'directory',
-        size: childStat.isFile() ? childStat.size : undefined,
-        modified: childStat.mtime.toISOString()
+      const type: 'file' | 'directory' = child.isDirectory() ? 'directory' : 'file'
+      // stat() can fail on protected entries at the drive root (System Volume
+      // Information, $Recycle.Bin, pagefile.sys, etc). Fall back to dirent info
+      // so a single inaccessible entry doesn't break the whole listing.
+      try {
+        const childStat = await stat(childPath)
+        return {
+          name: child.name,
+          path: childPath,
+          type,
+          size: childStat.isFile() ? childStat.size : undefined,
+          modified: childStat.mtime.toISOString()
+        }
+      } catch {
+        return { name: child.name, path: childPath, type }
       }
     })
   )
