@@ -74,7 +74,7 @@ export function countByStatus(diff: Map<string, DiffStatus>): Record<DiffStatus,
  */
 export function getDwRelativeTail(p: string): string | null {
   if (!p) return null
-  const norm = p.replace(/\\/g, '/').toLowerCase()
+  const norm = p.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase()
   const m = norm.match(/(?:^|\/)files(\/.*)?$/)
   if (!m) return null
   return '/files' + (m[1] ?? '')
