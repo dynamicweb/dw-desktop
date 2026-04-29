@@ -498,7 +498,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
           pane="local"
           selected={localSelected}
           syncCandidates={syncCandidateKeys ?? undefined}
-          mirrorPaths={remoteMirrorPaths.length > 0 ? remoteMirrorPaths : undefined}
+          mirrorPaths={localMirrorPaths.length > 0 ? localMirrorPaths : undefined}
         />
 
         {/* Conflict banner */}
@@ -713,7 +713,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
               pane="remote"
               selected={remoteSelected}
               syncCandidates={syncCandidateKeys ?? undefined}
-              mirrorPaths={localMirrorPaths.length > 0 ? localMirrorPaths : undefined}
+              mirrorPaths={remoteMirrorPaths.length > 0 ? remoteMirrorPaths : undefined}
             />
             <div
               style={dropZoneStyle}
