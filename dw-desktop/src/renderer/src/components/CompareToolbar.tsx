@@ -55,7 +55,7 @@ export default function CompareToolbar({
     >
       <button
         type="button"
-        title={compareOn ? 'Disable compare' : 'Enable compare — detects differences by comparing file sizes'}
+        title={compareOn ? 'Disable file size comparison' : 'Enable file size comparison'}
         onClick={() => onModeChange(compareOn ? 'off' : 'auto')}
         style={{
           height: 22,
