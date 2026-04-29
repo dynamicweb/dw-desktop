@@ -437,8 +437,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
       {/* Local pane */}
       <div
         onMouseDown={(e) => {
-          if (e.button === 3 && localBackStack.length > 0) { e.preventDefault(); void goBackLocal(); if (syncNav && pathsInSync && remoteBackStack.length > 0) void goBackRemote() }
-          if (e.button === 4 && localForwardStack.length > 0) { e.preventDefault(); void goForwardLocal(); if (syncNav && pathsInSync && remoteForwardStack.length > 0) void goForwardRemote() }
+          if (e.button === 3 && localBackStack.length > 0) { e.preventDefault(); void goBackLocal() }
+          if (e.button === 4 && localForwardStack.length > 0) { e.preventDefault(); void goForwardLocal() }
         }}
         style={{
           display: 'flex',
@@ -609,8 +609,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
       {/* Remote pane */}
       <div
         onMouseDown={(e) => {
-          if (e.button === 3 && activeEnv && remoteBackStack.length > 0) { e.preventDefault(); void goBackRemote(); if (syncNav && pathsInSync && localBackStack.length > 0) void goBackLocal() }
-          if (e.button === 4 && activeEnv && remoteForwardStack.length > 0) { e.preventDefault(); void goForwardRemote(); if (syncNav && pathsInSync && localForwardStack.length > 0) void goForwardLocal() }
+          if (e.button === 3 && activeEnv && remoteBackStack.length > 0) { e.preventDefault(); void goBackRemote() }
+          if (e.button === 4 && activeEnv && remoteForwardStack.length > 0) { e.preventDefault(); void goForwardRemote() }
         }}
         style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--pane-bg)' }}
       >
