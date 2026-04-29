@@ -125,7 +125,7 @@ export default function CompareToolbar({
       <span aria-hidden style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', flexShrink: 0 }} />
       <button
         type="button"
-        title={syncNav ? 'Disable sync navigation' : 'Enable sync navigation — auto-syncs both panes when folder structures match'}
+        title={syncNav ? 'Disable synchronized navigation' : 'Enable synchronized navigation — navigates both panes together when folder structures match'}
         onClick={() => onSyncNavChange(!syncNav)}
         style={{
           display: 'flex',
