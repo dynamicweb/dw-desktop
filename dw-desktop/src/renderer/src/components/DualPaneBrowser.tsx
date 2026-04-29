@@ -226,7 +226,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
   // User-initiated navigation: push the current path onto back, clear forward.
   async function navigateLocalTo(path: string): Promise<void> {
     if (path === localPath) return
-    setLocalBackStack((b) => [localPath, ...b])
+    setLocalBackStack((b) => b[0] === localPath ? b : [localPath, ...b])
     setLocalForwardStack([])
     setLocalLoading(true)
     await loadLocal(path)
@@ -258,7 +258,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
 
   async function navigateRemoteTo(path: string): Promise<void> {
     if (!activeEnv || path === remotePath) return
-    setRemoteBackStack((b) => [remotePath, ...b])
+    setRemoteBackStack((b) => b[0] === remotePath ? b : [remotePath, ...b])
     setRemoteForwardStack([])
     setRemoteLoading(true)
     await loadRemote(activeEnv.name, path)
