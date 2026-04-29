@@ -16,6 +16,7 @@ interface FileListProps {
   diffMap?: Map<string, DiffStatus>
   highlightedStatuses?: DiffStatus[]
   syncCandidates?: Set<string>
+  mirrorPaths?: string[]
 }
 
 const DIFF_BORDER: Record<DiffStatus, string> = {
@@ -107,7 +108,8 @@ export default function FileList({
   pane,
   diffMap,
   highlightedStatuses,
-  syncCandidates
+  syncCandidates,
+  mirrorPaths
 }: FileListProps): React.JSX.Element {
   const isRemote = pane === 'remote'
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
@@ -214,6 +216,7 @@ export default function FileList({
         const highlight =
           status && (highlightedStatuses?.includes(status) ?? false) ? status : undefined
         const isSync = entry.type === 'directory' && !!syncCandidates?.has(diffKey(entry))
+        const isMirror = !!mirrorPaths?.includes(entry.path)
         const diffBorder = highlight ? DIFF_BORDER[highlight] : 'transparent'
         const diffBg = highlight ? DIFF_BG[highlight] : undefined
         return (
@@ -268,7 +271,7 @@ export default function FileList({
               transition: 'background 80ms ease-out',
               background: isSelected ? 'var(--selection)' : (diffBg ?? 'transparent'),
               color: 'var(--text)',
-              outline: isDragOver ? '1px dashed var(--accent-cool)' : 'none',
+              outline: isDragOver ? '1px dashed var(--accent-cool)' : isMirror ? '1px solid var(--accent)' : 'none',
               outlineOffset: -1,
               opacity: isDragging ? 0.4 : 1
             }}

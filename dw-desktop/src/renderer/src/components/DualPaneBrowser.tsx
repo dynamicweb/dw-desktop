@@ -98,6 +98,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const [remoteBackStack, setRemoteBackStack] = useState<string[]>([])
   const [remoteForwardStack, setRemoteForwardStack] = useState<string[]>([])
   const [pathsInSync, setPathsInSync] = useState(false)
+  const [localMirrorPaths, setLocalMirrorPaths] = useState<string[]>([])
+  const [remoteMirrorPaths, setRemoteMirrorPaths] = useState<string[]>([])
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [showAddEnv, setShowAddEnv] = useState(false)
   const [conflictCount, setConflictCount] = useState(0)
@@ -483,10 +485,20 @@ export default function DualPaneBrowser(): React.JSX.Element {
           onContextMenu={(entry, x, y) => setContextMenu({ entry, x, y, pane: 'local' })}
           onDoubleClick={(entry) => void navigateLocal(entry)}
           onDropOnPane={(paths) => void handleDownload(paths)}
-          onSelect={(paths) => setSelected('local', paths)}
+          onSelect={(paths) => {
+            setSelected('local', paths)
+            if (syncNav && pathsInSync) {
+              const names = new Set(paths.map((p) => p.split(/[\\/]/).pop() ?? ''))
+              setRemoteMirrorPaths(remoteEntries.filter((e) => e.type === 'directory' && names.has(e.name)).map((e) => e.path))
+            } else {
+              setRemoteMirrorPaths([])
+            }
+            setLocalMirrorPaths([])
+          }}
           pane="local"
           selected={localSelected}
           syncCandidates={syncCandidateKeys ?? undefined}
+          mirrorPaths={remoteMirrorPaths.length > 0 ? remoteMirrorPaths : undefined}
         />
 
         {/* Conflict banner */}
@@ -688,10 +700,20 @@ export default function DualPaneBrowser(): React.JSX.Element {
               onDoubleClick={(entry) => void navigateRemote(entry)}
               onDropIntoDir={(paths, targetDir) => void handleUpload(paths, targetDir.path)}
               onDropOnPane={(paths) => void handleUpload(paths, remotePath)}
-              onSelect={(paths) => setSelected('remote', paths)}
+              onSelect={(paths) => {
+                setSelected('remote', paths)
+                if (syncNav && pathsInSync) {
+                  const names = new Set(paths.map((p) => p.split('/').pop() ?? ''))
+                  setLocalMirrorPaths(localEntries.filter((e) => e.type === 'directory' && names.has(e.name)).map((e) => e.path))
+                } else {
+                  setLocalMirrorPaths([])
+                }
+                setRemoteMirrorPaths([])
+              }}
               pane="remote"
               selected={remoteSelected}
               syncCandidates={syncCandidateKeys ?? undefined}
+              mirrorPaths={localMirrorPaths.length > 0 ? localMirrorPaths : undefined}
             />
             <div
               style={dropZoneStyle}
