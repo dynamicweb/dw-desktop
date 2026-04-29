@@ -58,17 +58,18 @@ export default function CompareToolbar({
         title={compareOn ? 'Disable compare' : 'Enable compare — detects differences by comparing file sizes'}
         onClick={() => onModeChange(compareOn ? 'off' : 'auto')}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 5,
-          fontSize: 11,
-          padding: '2px 10px',
+          height: 22,
+          padding: '0 8px',
+          fontSize: 10,
+          fontFamily: 'var(--font-ui)',
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
           borderRadius: 'var(--r-sm)',
-          border: `1px solid ${compareOn ? 'var(--accent)' : 'var(--border)'}`,
+          border: '1px solid var(--border-strong)',
           cursor: 'pointer',
           background: compareOn ? 'var(--accent)' : 'var(--surface-raised)',
           color: compareOn ? '#fff' : 'var(--text-subtle)',
-          transition: 'background 80ms ease, color 80ms ease, border-color 80ms ease',
+          transition: 'background 80ms ease-out, color 80ms ease-out',
           userSelect: 'none'
         }}
       >
@@ -128,17 +129,18 @@ export default function CompareToolbar({
         title={syncNav ? 'Disable synchronized navigation' : 'Enable synchronized navigation — navigates both panes together when folder structures match'}
         onClick={() => onSyncNavChange(!syncNav)}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 5,
-          fontSize: 11,
-          padding: '2px 10px',
+          height: 22,
+          padding: '0 8px',
+          fontSize: 10,
+          fontFamily: 'var(--font-ui)',
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
           borderRadius: 'var(--r-sm)',
-          border: `1px solid ${syncNav ? 'var(--accent)' : 'var(--border)'}`,
+          border: '1px solid var(--border-strong)',
           cursor: 'pointer',
           background: syncNav ? 'var(--accent)' : 'var(--surface-raised)',
           color: syncNav ? '#fff' : 'var(--text-subtle)',
-          transition: 'background 80ms ease, color 80ms ease, border-color 80ms ease',
+          transition: 'background 80ms ease-out, color 80ms ease-out',
           userSelect: 'none'
         }}
       >
