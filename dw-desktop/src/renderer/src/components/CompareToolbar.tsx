@@ -7,6 +7,9 @@ interface CompareToolbarProps {
   diffMap: Map<string, DiffStatus>
   highlightedStatuses: DiffStatus[]
   onToggleStatus: (status: DiffStatus) => void
+  pathsInSync: boolean
+  syncNav: boolean
+  onSyncNavChange: (v: boolean) => void
 }
 
 const MODES: { value: CompareMode; label: string }[] = [
@@ -36,7 +39,10 @@ export default function CompareToolbar({
   onModeChange,
   diffMap,
   highlightedStatuses,
-  onToggleStatus
+  onToggleStatus,
+  pathsInSync,
+  syncNav,
+  onSyncNavChange
 }: CompareToolbarProps): React.JSX.Element {
   const counts = countByStatus(diffMap)
   const hasDiff = diffMap.size > 0
@@ -97,6 +103,33 @@ export default function CompareToolbar({
           )
         })}
       </div>
+
+      {pathsInSync && (
+        <>
+          <span aria-hidden style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', flexShrink: 0 }} />
+          <button
+            type="button"
+            title={syncNav ? 'Disable sync navigation' : 'Enable sync navigation — navigating into a matched folder will move both panes'}
+            onClick={() => onSyncNavChange(!syncNav)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              fontSize: 11,
+              padding: '2px 10px',
+              borderRadius: 'var(--r-sm)',
+              border: `1px solid ${syncNav ? '#2dd4bf' : 'var(--border)'}`,
+              cursor: 'pointer',
+              background: syncNav ? 'color-mix(in srgb, #2dd4bf 15%, transparent)' : 'var(--surface-raised)',
+              color: syncNav ? '#2dd4bf' : 'var(--text-subtle)',
+              transition: 'background 80ms ease, color 80ms ease, border-color 80ms ease',
+              userSelect: 'none'
+            }}
+          >
+            ⇄ Sync
+          </button>
+        </>
+      )}
 
       {hasDiff && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

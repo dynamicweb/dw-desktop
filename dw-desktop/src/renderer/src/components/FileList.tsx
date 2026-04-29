@@ -15,6 +15,7 @@ interface FileListProps {
   pane?: 'local' | 'remote'
   diffMap?: Map<string, DiffStatus>
   highlightedStatuses?: DiffStatus[]
+  syncCandidates?: Set<string>
 }
 
 const DIFF_BORDER: Record<DiffStatus, string> = {
@@ -105,7 +106,8 @@ export default function FileList({
   dropTarget,
   pane,
   diffMap,
-  highlightedStatuses
+  highlightedStatuses,
+  syncCandidates
 }: FileListProps): React.JSX.Element {
   const isRemote = pane === 'remote'
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
@@ -211,8 +213,11 @@ export default function FileList({
         const status = diffMap?.get(diffKey(entry))
         const highlight =
           status && (highlightedStatuses?.includes(status) ?? false) ? status : undefined
-        const diffBorder = highlight ? DIFF_BORDER[highlight] : 'transparent'
-        const diffBg = highlight ? DIFF_BG[highlight] : undefined
+        const isSync = entry.type === 'directory' && !!syncCandidates?.has(diffKey(entry))
+        const diffBorder = isSync ? '#2dd4bf' : highlight ? DIFF_BORDER[highlight] : 'transparent'
+        const diffBg = isSync
+          ? 'color-mix(in srgb, #2dd4bf 8%, transparent)'
+          : highlight ? DIFF_BG[highlight] : undefined
         return (
           <div
             key={entry.path}
@@ -297,7 +302,9 @@ export default function FileList({
                 flexShrink: 0
               }}
             >
-              {entry.type === 'directory' ? '' : formatSize(entry.size)}
+              {isSync ? (
+              <span style={{ color: '#2dd4bf', fontSize: 12 }}>⇄</span>
+            ) : entry.type === 'directory' ? '' : formatSize(entry.size)}
             </span>
           </div>
         )

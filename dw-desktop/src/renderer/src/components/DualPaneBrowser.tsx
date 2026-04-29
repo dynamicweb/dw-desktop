@@ -1,11 +1,11 @@
 import { nanoid } from 'nanoid'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { envLabel, type FileEntry } from '../../../shared/types'
 import { useEnvStore } from '../stores/envStore'
 import { useFileStore } from '../stores/fileStore'
 import { useToastStore } from '../stores/toastStore'
 import { useTransferStore } from '../stores/transferStore'
-import { compareEntries, getDwRelativeTail } from '../utils/compareEntries'
+import { compareEntries, diffKey, getDwRelativeTail } from '../utils/compareEntries'
 import AddEnvModal from './AddEnvModal'
 import CompareToolbar from './CompareToolbar'
 import ContextMenu from './ContextMenu'
@@ -75,11 +75,13 @@ export default function DualPaneBrowser(): React.JSX.Element {
     compareMode,
     diffMap,
     highlightedStatuses,
+    syncNav,
     loadRemote,
     loadLocal,
     setSelected,
     setCompareMode,
     setDiffMap,
+    setSyncNav,
     toggleHighlightedStatus
   } = useFileStore()
   const { addJob } = useTransferStore()
@@ -91,6 +93,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const [localForwardStack, setLocalForwardStack] = useState<string[]>([])
   const [remoteBackStack, setRemoteBackStack] = useState<string[]>([])
   const [remoteForwardStack, setRemoteForwardStack] = useState<string[]>([])
+  const [pathsInSync, setPathsInSync] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [showAddEnv, setShowAddEnv] = useState(false)
   const [conflictCount, setConflictCount] = useState(0)
@@ -182,22 +185,34 @@ export default function DualPaneBrowser(): React.JSX.Element {
   useEffect(() => {
     if (compareMode === 'off') {
       setDiffMap(new Map())
+      setPathsInSync(false)
       return
     }
     if (compareMode === 'on') {
       setDiffMap(compareEntries(localEntries, remoteEntries))
+      setPathsInSync(true)
       return
     }
-    // auto: only compare when DW-relative path tails match (e.g. local .../Files/Templates
-    // and remote /Files/Templates both resolve to /files/templates)
+    // auto: only compare when DW-relative path tails match
     const localTail = getDwRelativeTail(localPath)
     const remoteTail = getDwRelativeTail(toDisplayRemotePath(remotePath))
     if (localTail && remoteTail && localTail === remoteTail) {
       setDiffMap(compareEntries(localEntries, remoteEntries))
+      setPathsInSync(true)
     } else {
       setDiffMap(new Map())
+      setPathsInSync(false)
     }
   }, [compareMode, localEntries, remoteEntries, localPath, remotePath, setDiffMap])
+
+  const syncCandidateKeys = useMemo(() => {
+    if (!pathsInSync || !syncNav) return null
+    const keys = new Set<string>()
+    for (const [key, status] of diffMap) {
+      if (status === 'identical' || status === 'different') keys.add(key)
+    }
+    return keys
+  }, [diffMap, pathsInSync, syncNav])
 
   // User-initiated navigation: push the current path onto back, clear forward.
   async function navigateLocalTo(path: string): Promise<void> {
@@ -268,11 +283,20 @@ export default function DualPaneBrowser(): React.JSX.Element {
   async function navigateLocal(entry: FileEntry): Promise<void> {
     if (entry.type !== 'directory') return
     await navigateLocalTo(entry.path)
+    if (activeEnv && syncCandidateKeys?.has(diffKey(entry))) {
+      const remoteTarget = remotePath === '/' ? `/${entry.name}` : `${remotePath}/${entry.name}`
+      await navigateRemoteTo(remoteTarget)
+    }
   }
 
   async function navigateRemote(entry: FileEntry): Promise<void> {
     if (!activeEnv || entry.type !== 'directory') return
     await navigateRemoteTo(entry.path)
+    if (syncCandidateKeys?.has(diffKey(entry))) {
+      const sep = localPath.includes('\\') ? '\\' : '/'
+      const localTarget = localPath ? `${localPath}${sep}${entry.name}` : entry.name
+      await navigateLocalTo(localTarget)
+    }
   }
 
   async function handleUpload(localPaths: string[], targetRemotePath: string): Promise<void> {
@@ -396,6 +420,9 @@ export default function DualPaneBrowser(): React.JSX.Element {
           diffMap={diffMap}
           highlightedStatuses={highlightedStatuses}
           onToggleStatus={toggleHighlightedStatus}
+          pathsInSync={pathsInSync}
+          syncNav={syncNav}
+          onSyncNavChange={setSyncNav}
         />
       )}
     <div ref={containerRef} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -439,6 +466,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
           onSelect={(paths) => setSelected('local', paths)}
           pane="local"
           selected={localSelected}
+          syncCandidates={syncCandidateKeys ?? undefined}
         />
 
         {/* Conflict banner */}
@@ -633,6 +661,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
               onSelect={(paths) => setSelected('remote', paths)}
               pane="remote"
               selected={remoteSelected}
+              syncCandidates={syncCandidateKeys ?? undefined}
             />
             <div
               style={dropZoneStyle}
