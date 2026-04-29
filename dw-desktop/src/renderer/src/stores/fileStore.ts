@@ -8,7 +8,7 @@ const DEFAULT_HIGHLIGHTED: DiffStatus[] = ['different', 'remote-only']
 
 function loadCompareMode(): CompareMode {
   const v = localStorage.getItem(COMPARE_MODE_KEY)
-  return v === 'off' || v === 'on' ? v : 'auto'
+  return v === 'auto' || v === 'on' ? v : 'off'
 }
 
 function loadHighlighted(): DiffStatus[] {
