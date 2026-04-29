@@ -442,12 +442,12 @@ export default function DualPaneBrowser(): React.JSX.Element {
           if (e.button === 3 && localBackStack.length > 0) {
             e.preventDefault()
             void goBackLocal()
-            if (mirrorNav && pathsMatch) void goBackRemote()
+            if (mirrorNav) void goBackRemote()
           }
           if (e.button === 4 && localForwardStack.length > 0) {
             e.preventDefault()
             void goForwardLocal()
-            if (mirrorNav && pathsMatch) void goForwardRemote()
+            if (mirrorNav) void goForwardRemote()
           }
         }}
         style={{
@@ -622,12 +622,12 @@ export default function DualPaneBrowser(): React.JSX.Element {
           if (e.button === 3 && activeEnv && remoteBackStack.length > 0) {
             e.preventDefault()
             void goBackRemote()
-            if (mirrorNav && pathsMatch) void goBackLocal()
+            if (mirrorNav) void goBackLocal()
           }
           if (e.button === 4 && activeEnv && remoteForwardStack.length > 0) {
             e.preventDefault()
             void goForwardRemote()
-            if (mirrorNav && pathsMatch) void goForwardLocal()
+            if (mirrorNav) void goForwardLocal()
           }
         }}
         style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--pane-bg)' }}
