@@ -55,7 +55,7 @@ export default function CompareToolbar({
     >
       <button
         type="button"
-        title={compareOn ? 'Disable compare' : 'Enable compare — auto-detects matching folder structures'}
+        title={compareOn ? 'Disable compare' : 'Enable compare — detects differences by comparing file sizes'}
         onClick={() => onModeChange(compareOn ? 'off' : 'auto')}
         style={{
           display: 'flex',
@@ -72,7 +72,7 @@ export default function CompareToolbar({
           userSelect: 'none'
         }}
       >
-        Compare
+        ⊟ Compare
       </button>
 
       {hasDiff && (
