@@ -7,7 +7,6 @@ interface CompareToolbarProps {
   diffMap: Map<string, DiffStatus>
   highlightedStatuses: DiffStatus[]
   onToggleStatus: (status: DiffStatus) => void
-  pathsInSync: boolean
   syncNav: boolean
   onSyncNavChange: (v: boolean) => void
 }
@@ -34,7 +33,6 @@ export default function CompareToolbar({
   diffMap,
   highlightedStatuses,
   onToggleStatus,
-  pathsInSync,
   syncNav,
   onSyncNavChange
 }: CompareToolbarProps): React.JSX.Element {
@@ -77,32 +75,28 @@ export default function CompareToolbar({
         Compare
       </button>
 
-      {pathsInSync && (
-        <>
-          <span aria-hidden style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', flexShrink: 0 }} />
-          <button
-            type="button"
-            title={syncNav ? 'Disable sync navigation' : 'Enable sync navigation — navigating into a matched folder will move both panes'}
-            onClick={() => onSyncNavChange(!syncNav)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-              fontSize: 11,
-              padding: '2px 10px',
-              borderRadius: 'var(--r-sm)',
-              border: `1px solid ${syncNav ? 'var(--accent)' : 'var(--border)'}`,
-              cursor: 'pointer',
-              background: syncNav ? 'var(--accent)' : 'var(--surface-raised)',
-              color: syncNav ? '#fff' : 'var(--text-subtle)',
-              transition: 'background 80ms ease, color 80ms ease, border-color 80ms ease',
-              userSelect: 'none'
-            }}
-          >
-            ⇄ Sync
-          </button>
-        </>
-      )}
+      <span aria-hidden style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', flexShrink: 0 }} />
+      <button
+        type="button"
+        title={syncNav ? 'Disable sync navigation' : 'Enable sync navigation — auto-syncs both panes when folder structures match'}
+        onClick={() => onSyncNavChange(!syncNav)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          fontSize: 11,
+          padding: '2px 10px',
+          borderRadius: 'var(--r-sm)',
+          border: `1px solid ${syncNav ? 'var(--accent)' : 'var(--border)'}`,
+          cursor: 'pointer',
+          background: syncNav ? 'var(--accent)' : 'var(--surface-raised)',
+          color: syncNav ? '#fff' : 'var(--text-subtle)',
+          transition: 'background 80ms ease, color 80ms ease, border-color 80ms ease',
+          userSelect: 'none'
+        }}
+      >
+        ⇄ Sync
+      </button>
 
       {hasDiff && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

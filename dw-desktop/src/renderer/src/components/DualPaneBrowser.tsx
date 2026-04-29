@@ -424,7 +424,6 @@ export default function DualPaneBrowser(): React.JSX.Element {
           diffMap={diffMap}
           highlightedStatuses={highlightedStatuses}
           onToggleStatus={toggleHighlightedStatus}
-          pathsInSync={pathsInSync}
           syncNav={syncNav}
           onSyncNavChange={setSyncNav}
         />
