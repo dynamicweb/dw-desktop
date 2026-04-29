@@ -207,12 +207,21 @@ export default function DualPaneBrowser(): React.JSX.Element {
 
   const syncCandidateKeys = useMemo(() => {
     if (!pathsInSync || !syncNav) return null
+    if (diffMap.size > 0) {
+      const keys = new Set<string>()
+      for (const [key, status] of diffMap) {
+        if (status === 'identical' || status === 'different') keys.add(key)
+      }
+      return keys
+    }
+    // Compare is off — compute folder matches directly from entries
+    const remoteKeys = new Set(remoteEntries.filter((e) => e.type === 'directory').map((e) => diffKey(e)))
     const keys = new Set<string>()
-    for (const [key, status] of diffMap) {
-      if (status === 'identical' || status === 'different') keys.add(key)
+    for (const e of localEntries) {
+      if (e.type === 'directory' && remoteKeys.has(diffKey(e))) keys.add(diffKey(e))
     }
     return keys
-  }, [diffMap, pathsInSync, syncNav])
+  }, [diffMap, pathsInSync, syncNav, localEntries, remoteEntries])
 
   // User-initiated navigation: push the current path onto back, clear forward.
   async function navigateLocalTo(path: string): Promise<void> {
