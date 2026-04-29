@@ -214,10 +214,8 @@ export default function FileList({
         const highlight =
           status && (highlightedStatuses?.includes(status) ?? false) ? status : undefined
         const isSync = entry.type === 'directory' && !!syncCandidates?.has(diffKey(entry))
-        const diffBorder = isSync ? '#2dd4bf' : highlight ? DIFF_BORDER[highlight] : 'transparent'
-        const diffBg = isSync
-          ? 'color-mix(in srgb, #2dd4bf 8%, transparent)'
-          : highlight ? DIFF_BG[highlight] : undefined
+        const diffBorder = highlight ? DIFF_BORDER[highlight] : 'transparent'
+        const diffBg = highlight ? DIFF_BG[highlight] : undefined
         return (
           <div
             key={entry.path}
@@ -303,7 +301,7 @@ export default function FileList({
               }}
             >
               {isSync ? (
-              <span style={{ color: '#2dd4bf', fontSize: 12 }}>⇄</span>
+              <span style={{ color: 'var(--text-subtle)', fontSize: 12 }}>⇄</span>
             ) : entry.type === 'directory' ? '' : formatSize(entry.size)}
             </span>
           </div>

@@ -118,10 +118,10 @@ export default function CompareToolbar({
               fontSize: 11,
               padding: '2px 10px',
               borderRadius: 'var(--r-sm)',
-              border: `1px solid ${syncNav ? '#2dd4bf' : 'var(--border)'}`,
+              border: `1px solid ${syncNav ? 'var(--accent)' : 'var(--border)'}`,
               cursor: 'pointer',
-              background: syncNav ? 'color-mix(in srgb, #2dd4bf 15%, transparent)' : 'var(--surface-raised)',
-              color: syncNav ? '#2dd4bf' : 'var(--text-subtle)',
+              background: syncNav ? 'var(--accent)' : 'var(--surface-raised)',
+              color: syncNav ? '#fff' : 'var(--text-subtle)',
               transition: 'background 80ms ease, color 80ms ease, border-color 80ms ease',
               userSelect: 'none'
             }}
