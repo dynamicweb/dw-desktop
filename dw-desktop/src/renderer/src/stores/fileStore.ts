@@ -36,7 +36,7 @@ interface FileState {
   diffMap: Map<string, DiffStatus>
   highlightedStatuses: DiffStatus[]
   loadRemote: (envName: string, path: string) => Promise<void>
-  loadLocal: (path: string, envName?: string | null) => Promise<void>
+  loadLocal: (path: string, envName?: string | null) => Promise<boolean>
   setSelected: (pane: 'local' | 'remote', paths: string[]) => void
   setCompareMode: (mode: CompareMode) => void
   setDiffMap: (map: Map<string, DiffStatus>) => void
@@ -78,7 +78,9 @@ export const useFileStore = create<FileState>((set, get) => ({
       // Skip persisting the empty (drives-view) path — it's transient navigation,
       // not a meaningful "last folder" to restore on next open.
       if (targetEnv && path) persistLocal(targetEnv, path)
+      return true
     }
+    return false
   },
 
   setSelected: (pane, paths) => {
