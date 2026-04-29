@@ -235,25 +235,23 @@ export default function DualPaneBrowser(): React.JSX.Element {
 
   // Back/forward use the history stacks rather than the parent path.
   async function goBackLocal(): Promise<void> {
-    setLocalBackStack((b) => {
-      if (b.length === 0) return b
-      const [prev, ...rest] = b
-      setLocalForwardStack((f) => [localPath, ...f])
-      setLocalLoading(true)
-      void loadLocal(prev).finally(() => setLocalLoading(false))
-      return rest
-    })
+    if (localBackStack.length === 0) return
+    const [prev, ...rest] = localBackStack
+    setLocalBackStack(rest)
+    setLocalForwardStack((f) => f[0] === localPath ? f : [localPath, ...f])
+    setLocalLoading(true)
+    await loadLocal(prev)
+    setLocalLoading(false)
   }
 
   async function goForwardLocal(): Promise<void> {
-    setLocalForwardStack((f) => {
-      if (f.length === 0) return f
-      const [next, ...rest] = f
-      setLocalBackStack((b) => [localPath, ...b])
-      setLocalLoading(true)
-      void loadLocal(next).finally(() => setLocalLoading(false))
-      return rest
-    })
+    if (localForwardStack.length === 0) return
+    const [next, ...rest] = localForwardStack
+    setLocalForwardStack(rest)
+    setLocalBackStack((b) => b[0] === localPath ? b : [localPath, ...b])
+    setLocalLoading(true)
+    await loadLocal(next)
+    setLocalLoading(false)
   }
 
   async function navigateRemoteTo(path: string): Promise<void> {
@@ -266,27 +264,23 @@ export default function DualPaneBrowser(): React.JSX.Element {
   }
 
   async function goBackRemote(): Promise<void> {
-    if (!activeEnv) return
-    setRemoteBackStack((b) => {
-      if (b.length === 0) return b
-      const [prev, ...rest] = b
-      setRemoteForwardStack((f) => [remotePath, ...f])
-      setRemoteLoading(true)
-      void loadRemote(activeEnv.name, prev).finally(() => setRemoteLoading(false))
-      return rest
-    })
+    if (!activeEnv || remoteBackStack.length === 0) return
+    const [prev, ...rest] = remoteBackStack
+    setRemoteBackStack(rest)
+    setRemoteForwardStack((f) => f[0] === remotePath ? f : [remotePath, ...f])
+    setRemoteLoading(true)
+    await loadRemote(activeEnv.name, prev)
+    setRemoteLoading(false)
   }
 
   async function goForwardRemote(): Promise<void> {
-    if (!activeEnv) return
-    setRemoteForwardStack((f) => {
-      if (f.length === 0) return f
-      const [next, ...rest] = f
-      setRemoteBackStack((b) => [remotePath, ...b])
-      setRemoteLoading(true)
-      void loadRemote(activeEnv.name, next).finally(() => setRemoteLoading(false))
-      return rest
-    })
+    if (!activeEnv || remoteForwardStack.length === 0) return
+    const [next, ...rest] = remoteForwardStack
+    setRemoteForwardStack(rest)
+    setRemoteBackStack((b) => b[0] === remotePath ? b : [remotePath, ...b])
+    setRemoteLoading(true)
+    await loadRemote(activeEnv.name, next)
+    setRemoteLoading(false)
   }
 
   async function navigateLocal(entry: FileEntry): Promise<void> {
