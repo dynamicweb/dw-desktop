@@ -24,7 +24,7 @@ const LABEL: Record<DiffStatus, string> = {
   different: 'different',
   'remote-only': 'remote',
   'local-only': 'local',
-  identical: 'identical'
+  identical: 'equal'
 }
 
 export default function CompareToolbar({
