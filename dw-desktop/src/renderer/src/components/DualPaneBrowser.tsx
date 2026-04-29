@@ -98,6 +98,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const [remoteBackStack, setRemoteBackStack] = useState<string[]>([])
   const [remoteForwardStack, setRemoteForwardStack] = useState<string[]>([])
   const [pathsMatch, setPathsInSync] = useState(false)
+  const [mirrorBackStack, setMirrorBackStack] = useState<{ local: string; remote: string }[]>([])
+  const [mirrorForwardStack, setMirrorForwardStack] = useState<{ local: string; remote: string }[]>([])
   const [localMirrorPaths, setLocalMirrorPaths] = useState<string[]>([])
   const [remoteMirrorPaths, setRemoteMirrorPaths] = useState<string[]>([])
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -289,10 +291,37 @@ export default function DualPaneBrowser(): React.JSX.Element {
     })
   }
 
+  function pushMirrorHistory(): void {
+    setMirrorBackStack((b) => [{ local: localPath, remote: remotePath }, ...b])
+    setMirrorForwardStack([])
+  }
+
+  function doMirrorBack(): void {
+    const [pair, ...rest] = mirrorBackStack
+    setMirrorBackStack(rest)
+    setMirrorForwardStack((f) => [{ local: localPath, remote: remotePath }, ...f])
+    setLocalLoading(true)
+    setRemoteLoading(true)
+    void loadLocal(pair.local).finally(() => setLocalLoading(false))
+    if (activeEnv) void loadRemote(activeEnv.name, pair.remote).finally(() => setRemoteLoading(false))
+  }
+
+  function doMirrorForward(): void {
+    const [pair, ...rest] = mirrorForwardStack
+    setMirrorForwardStack(rest)
+    setMirrorBackStack((b) => [{ local: localPath, remote: remotePath }, ...b])
+    setLocalLoading(true)
+    setRemoteLoading(true)
+    void loadLocal(pair.local).finally(() => setLocalLoading(false))
+    if (activeEnv) void loadRemote(activeEnv.name, pair.remote).finally(() => setRemoteLoading(false))
+  }
+
   async function navigateLocal(entry: FileEntry): Promise<void> {
     if (entry.type !== 'directory') return
+    const isMirror = !!(activeEnv && mirrorCandidateKeys?.has(diffKey(entry)))
+    if (isMirror) pushMirrorHistory()
     await navigateLocalTo(entry.path)
-    if (activeEnv && mirrorCandidateKeys?.has(diffKey(entry))) {
+    if (isMirror) {
       const remoteTarget = remotePath === '/' ? `/${entry.name}` : `${remotePath}/${entry.name}`
       await navigateRemoteTo(remoteTarget)
     }
@@ -300,8 +329,10 @@ export default function DualPaneBrowser(): React.JSX.Element {
 
   async function navigateRemote(entry: FileEntry): Promise<void> {
     if (!activeEnv || entry.type !== 'directory') return
+    const isMirror = mirrorCandidateKeys?.has(diffKey(entry)) ?? false
+    if (isMirror) pushMirrorHistory()
     await navigateRemoteTo(entry.path)
-    if (mirrorCandidateKeys?.has(diffKey(entry))) {
+    if (isMirror) {
       const sep = localPath.includes('\\') ? '\\' : '/'
       const localTarget = localPath ? `${localPath}${sep}${entry.name}` : entry.name
       await navigateLocalTo(localTarget)
@@ -437,8 +468,14 @@ export default function DualPaneBrowser(): React.JSX.Element {
       {/* Local pane */}
       <div
         onMouseDown={(e) => {
-          if (e.button === 3 && localBackStack.length > 0) { e.preventDefault(); void goBackLocal() }
-          if (e.button === 4 && localForwardStack.length > 0) { e.preventDefault(); void goForwardLocal() }
+          if (e.button === 3) {
+            if (mirrorNav && mirrorBackStack.length > 0) { e.preventDefault(); doMirrorBack() }
+            else if (localBackStack.length > 0) { e.preventDefault(); void goBackLocal() }
+          }
+          if (e.button === 4) {
+            if (mirrorNav && mirrorForwardStack.length > 0) { e.preventDefault(); doMirrorForward() }
+            else if (localForwardStack.length > 0) { e.preventDefault(); void goForwardLocal() }
+          }
         }}
         style={{
           display: 'flex',
@@ -454,6 +491,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
           path={localPath}
           label="Local"
           onNavigateUp={() => {
+            if (mirrorNav && pathsMatch) pushMirrorHistory()
             void navigateLocalTo(localParentPath(localPath))
             if (mirrorNav && pathsMatch) void navigateRemoteTo(parentPath(remotePath))
           }}
@@ -466,6 +504,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
           }}
           onNavigateTo={(p) => {
             const steps = pathSegmentCount(localPath) - pathSegmentCount(p)
+            if (mirrorNav && pathsMatch && steps > 0) pushMirrorHistory()
             void navigateLocalTo(p)
             if (mirrorNav && pathsMatch && steps > 0) {
               let remoteTarget = remotePath
@@ -609,8 +648,14 @@ export default function DualPaneBrowser(): React.JSX.Element {
       {/* Remote pane */}
       <div
         onMouseDown={(e) => {
-          if (e.button === 3 && activeEnv && remoteBackStack.length > 0) { e.preventDefault(); void goBackRemote() }
-          if (e.button === 4 && activeEnv && remoteForwardStack.length > 0) { e.preventDefault(); void goForwardRemote() }
+          if (e.button === 3) {
+            if (mirrorNav && mirrorBackStack.length > 0) { e.preventDefault(); doMirrorBack() }
+            else if (activeEnv && remoteBackStack.length > 0) { e.preventDefault(); void goBackRemote() }
+          }
+          if (e.button === 4) {
+            if (mirrorNav && mirrorForwardStack.length > 0) { e.preventDefault(); doMirrorForward() }
+            else if (activeEnv && remoteForwardStack.length > 0) { e.preventDefault(); void goForwardRemote() }
+          }
         }}
         style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--pane-bg)' }}
       >
@@ -668,6 +713,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
               label={envLabel(activeEnv)}
               sublabel={activeEnv.host}
               onNavigateUp={() => {
+                if (mirrorNav && pathsMatch) pushMirrorHistory()
                 void navigateRemoteTo(parentPath(remotePath))
                 if (mirrorNav && pathsMatch) void navigateLocalTo(localParentPath(localPath))
               }}
@@ -679,6 +725,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
               onNavigateTo={(displayPath) => {
                 const virtual = displayPath.replace(/^\/Files/, '') || '/'
                 const steps = pathSegmentCount(remotePath) - pathSegmentCount(virtual)
+                if (mirrorNav && pathsMatch && steps > 0) pushMirrorHistory()
                 void navigateRemoteTo(virtual)
                 if (mirrorNav && pathsMatch && steps > 0) {
                   let localTarget = localPath
