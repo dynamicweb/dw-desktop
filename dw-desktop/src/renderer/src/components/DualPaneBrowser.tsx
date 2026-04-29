@@ -189,25 +189,19 @@ export default function DualPaneBrowser(): React.JSX.Element {
   }, [selected, remoteEntries])
 
   useEffect(() => {
-    if (compareMode === 'off') {
-      setDiffMap(new Map())
-      setPathsInSync(false)
-      return
-    }
-    if (compareMode === 'on') {
-      setDiffMap(compareEntries(localEntries, remoteEntries))
-      setPathsInSync(true)
-      return
-    }
-    // auto: only compare when DW-relative path tails match
     const localTail = getDwRelativeTail(localPath)
     const remoteTail = getDwRelativeTail(toDisplayRemotePath(remotePath))
-    if (localTail && remoteTail && localTail === remoteTail) {
+    const tailsMatch = !!(localTail && remoteTail && localTail === remoteTail)
+    setPathsInSync(tailsMatch)
+
+    if (compareMode === 'off') {
+      setDiffMap(new Map())
+      return
+    }
+    if (compareMode === 'on' || tailsMatch) {
       setDiffMap(compareEntries(localEntries, remoteEntries))
-      setPathsInSync(true)
     } else {
       setDiffMap(new Map())
-      setPathsInSync(false)
     }
   }, [compareMode, localEntries, remoteEntries, localPath, remotePath, setDiffMap])
 
