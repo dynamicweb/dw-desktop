@@ -22,8 +22,8 @@ const PILL_COLOR: Record<DiffStatus, string> = {
 
 const LABEL: Record<DiffStatus, string> = {
   different: 'different',
-  'remote-only': 'remote only',
-  'local-only': 'local only',
+  'remote-only': 'remote',
+  'local-only': 'local',
   identical: 'identical'
 }
 
