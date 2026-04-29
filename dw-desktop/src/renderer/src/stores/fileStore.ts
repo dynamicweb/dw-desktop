@@ -3,7 +3,7 @@ import type { CompareMode, DiffStatus, FileEntry } from '../../../shared/types'
 
 const COMPARE_MODE_KEY = 'dw.compareMode'
 const HIGHLIGHTED_STATUSES_KEY = 'dw.highlightedStatuses'
-const SYNC_NAV_KEY = 'dw.syncNav'
+const MIRROR_NAV_KEY = 'dw.mirrorNav'
 const DEFAULT_HIGHLIGHTED: DiffStatus[] = ['different', 'remote-only']
 
 function loadCompareMode(): CompareMode {
@@ -39,10 +39,10 @@ interface FileState {
   loadRemote: (envName: string, path: string) => Promise<void>
   loadLocal: (path: string, envName?: string | null) => Promise<boolean>
   setSelected: (pane: 'local' | 'remote', paths: string[]) => void
-  syncNav: boolean
+  mirrorNav: boolean
   setCompareMode: (mode: CompareMode) => void
   setDiffMap: (map: Map<string, DiffStatus>) => void
-  setSyncNav: (v: boolean) => void
+  setMirrorNav: (v: boolean) => void
   toggleHighlightedStatus: (status: DiffStatus) => void
 }
 
@@ -64,7 +64,7 @@ export const useFileStore = create<FileState>((set, get) => ({
   compareMode: loadCompareMode(),
   diffMap: new Map(),
   highlightedStatuses: loadHighlighted(),
-  syncNav: localStorage.getItem(SYNC_NAV_KEY) === 'true',
+  mirrorNav: localStorage.getItem(MIRROR_NAV_KEY) === 'true',
 
   loadRemote: async (envName, path) => {
     const result = await window.dw.files.list(envName, path)
@@ -100,9 +100,9 @@ export const useFileStore = create<FileState>((set, get) => ({
     set({ diffMap: map })
   },
 
-  setSyncNav: (v) => {
-    localStorage.setItem(SYNC_NAV_KEY, String(v))
-    set({ syncNav: v })
+  setMirrorNav: (v) => {
+    localStorage.setItem(MIRROR_NAV_KEY, String(v))
+    set({ mirrorNav: v })
   },
 
   toggleHighlightedStatus: (status) => {

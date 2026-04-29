@@ -7,8 +7,8 @@ interface CompareToolbarProps {
   diffMap: Map<string, DiffStatus>
   highlightedStatuses: DiffStatus[]
   onToggleStatus: (status: DiffStatus) => void
-  syncNav: boolean
-  onSyncNavChange: (v: boolean) => void
+  mirrorNav: boolean
+  onMirrorNavChange: (v: boolean) => void
 }
 
 const STATUSES: DiffStatus[] = ['different', 'remote-only', 'local-only', 'identical']
@@ -33,8 +33,8 @@ export default function CompareToolbar({
   diffMap,
   highlightedStatuses,
   onToggleStatus,
-  syncNav,
-  onSyncNavChange
+  mirrorNav,
+  onMirrorNavChange
 }: CompareToolbarProps): React.JSX.Element {
   const counts = countByStatus(diffMap)
   const hasDiff = diffMap.size > 0
@@ -126,8 +126,8 @@ export default function CompareToolbar({
       <span aria-hidden style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', flexShrink: 0 }} />
       <button
         type="button"
-        title={syncNav ? 'Disable synchronized navigation' : 'Enable synchronized navigation — navigates both panes together when folder structures match'}
-        onClick={() => onSyncNavChange(!syncNav)}
+        title={mirrorNav ? 'Disable mirror navigation' : 'Enable mirror navigation — navigates both panes together when folder structures match'}
+        onClick={() => onMirrorNavChange(!mirrorNav)}
         style={{
           height: 22,
           padding: '0 8px',
@@ -138,13 +138,13 @@ export default function CompareToolbar({
           borderRadius: 'var(--r-sm)',
           border: '1px solid var(--border-strong)',
           cursor: 'pointer',
-          background: syncNav ? 'var(--accent)' : 'var(--surface-raised)',
-          color: syncNav ? '#fff' : 'var(--text-subtle)',
+          background: mirrorNav ? 'var(--accent)' : 'var(--surface-raised)',
+          color: mirrorNav ? '#fff' : 'var(--text-subtle)',
           transition: 'background 80ms ease-out, color 80ms ease-out',
           userSelect: 'none'
         }}
       >
-        ⇄ Sync
+        ⇄ Mirror
       </button>
     </div>
   )

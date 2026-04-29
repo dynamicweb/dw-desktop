@@ -79,13 +79,13 @@ export default function DualPaneBrowser(): React.JSX.Element {
     compareMode,
     diffMap,
     highlightedStatuses,
-    syncNav,
+    mirrorNav,
     loadRemote,
     loadLocal,
     setSelected,
     setCompareMode,
     setDiffMap,
-    setSyncNav,
+    setMirrorNav,
     toggleHighlightedStatus
   } = useFileStore()
   const { addJob } = useTransferStore()
@@ -97,7 +97,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const [localForwardStack, setLocalForwardStack] = useState<string[]>([])
   const [remoteBackStack, setRemoteBackStack] = useState<string[]>([])
   const [remoteForwardStack, setRemoteForwardStack] = useState<string[]>([])
-  const [pathsInSync, setPathsInSync] = useState(false)
+  const [pathsMatch, setPathsInSync] = useState(false)
   const [localMirrorPaths, setLocalMirrorPaths] = useState<string[]>([])
   const [remoteMirrorPaths, setRemoteMirrorPaths] = useState<string[]>([])
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -205,8 +205,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
     }
   }, [compareMode, localEntries, remoteEntries, localPath, remotePath, setDiffMap])
 
-  const syncCandidateKeys = useMemo(() => {
-    if (!pathsInSync || !syncNav) return null
+  const mirrorCandidateKeys = useMemo(() => {
+    if (!pathsMatch || !mirrorNav) return null
     if (diffMap.size > 0) {
       const keys = new Set<string>()
       for (const [key, status] of diffMap) {
@@ -221,7 +221,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
       if (e.type === 'directory' && remoteKeys.has(diffKey(e))) keys.add(diffKey(e))
     }
     return keys
-  }, [diffMap, pathsInSync, syncNav, localEntries, remoteEntries])
+  }, [diffMap, pathsMatch, mirrorNav, localEntries, remoteEntries])
 
   // User-initiated navigation: push the current path onto back, clear forward.
   async function navigateLocalTo(path: string): Promise<void> {
@@ -292,7 +292,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
   async function navigateLocal(entry: FileEntry): Promise<void> {
     if (entry.type !== 'directory') return
     await navigateLocalTo(entry.path)
-    if (activeEnv && syncCandidateKeys?.has(diffKey(entry))) {
+    if (activeEnv && mirrorCandidateKeys?.has(diffKey(entry))) {
       const remoteTarget = remotePath === '/' ? `/${entry.name}` : `${remotePath}/${entry.name}`
       await navigateRemoteTo(remoteTarget)
     }
@@ -301,7 +301,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
   async function navigateRemote(entry: FileEntry): Promise<void> {
     if (!activeEnv || entry.type !== 'directory') return
     await navigateRemoteTo(entry.path)
-    if (syncCandidateKeys?.has(diffKey(entry))) {
+    if (mirrorCandidateKeys?.has(diffKey(entry))) {
       const sep = localPath.includes('\\') ? '\\' : '/'
       const localTarget = localPath ? `${localPath}${sep}${entry.name}` : entry.name
       await navigateLocalTo(localTarget)
@@ -429,8 +429,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
           diffMap={diffMap}
           highlightedStatuses={highlightedStatuses}
           onToggleStatus={toggleHighlightedStatus}
-          syncNav={syncNav}
-          onSyncNavChange={setSyncNav}
+          mirrorNav={mirrorNav}
+          onMirrorNavChange={setMirrorNav}
         />
       )}
     <div ref={containerRef} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -455,11 +455,11 @@ export default function DualPaneBrowser(): React.JSX.Element {
           label="Local"
           onNavigateUp={() => {
             void navigateLocalTo(localParentPath(localPath))
-            if (syncNav && pathsInSync) void navigateRemoteTo(parentPath(remotePath))
+            if (mirrorNav && pathsMatch) void navigateRemoteTo(parentPath(remotePath))
           }}
           onRefresh={() => {
             void loadLocal(localPath)
-            if (syncNav && pathsInSync && activeEnv) {
+            if (mirrorNav && pathsMatch && activeEnv) {
               setRemoteLoading(true)
               void loadRemote(activeEnv.name, remotePath).finally(() => setRemoteLoading(false))
             }
@@ -467,7 +467,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
           onNavigateTo={(p) => {
             const steps = pathSegmentCount(localPath) - pathSegmentCount(p)
             void navigateLocalTo(p)
-            if (syncNav && pathsInSync && steps > 0) {
+            if (mirrorNav && pathsMatch && steps > 0) {
               let remoteTarget = remotePath
               for (let i = 0; i < steps; i++) remoteTarget = parentPath(remoteTarget)
               void navigateRemoteTo(remoteTarget)
@@ -490,7 +490,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
           onDropOnPane={(paths) => void handleDownload(paths)}
           onSelect={(paths) => {
             setSelected('local', paths)
-            if (syncNav && pathsInSync) {
+            if (mirrorNav && pathsMatch) {
               const names = new Set(paths.map((p) => p.split(/[\\/]/).pop() ?? ''))
               setRemoteMirrorPaths(remoteEntries.filter((e) => e.type === 'directory' && names.has(e.name)).map((e) => e.path))
             } else {
@@ -500,7 +500,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
           }}
           pane="local"
           selected={localMirrorPaths.length > 0 ? [...localSelected, ...localMirrorPaths] : localSelected}
-          syncCandidates={syncCandidateKeys ?? undefined}
+          syncCandidates={mirrorCandidateKeys ?? undefined}
         />
 
         {/* Conflict banner */}
@@ -669,18 +669,18 @@ export default function DualPaneBrowser(): React.JSX.Element {
               sublabel={activeEnv.host}
               onNavigateUp={() => {
                 void navigateRemoteTo(parentPath(remotePath))
-                if (syncNav && pathsInSync) void navigateLocalTo(localParentPath(localPath))
+                if (mirrorNav && pathsMatch) void navigateLocalTo(localParentPath(localPath))
               }}
               onRefresh={() => {
                 setRemoteLoading(true)
                 void loadRemote(activeEnv.name, remotePath).finally(() => setRemoteLoading(false))
-                if (syncNav && pathsInSync) void loadLocal(localPath)
+                if (mirrorNav && pathsMatch) void loadLocal(localPath)
               }}
               onNavigateTo={(displayPath) => {
                 const virtual = displayPath.replace(/^\/Files/, '') || '/'
                 const steps = pathSegmentCount(remotePath) - pathSegmentCount(virtual)
                 void navigateRemoteTo(virtual)
-                if (syncNav && pathsInSync && steps > 0) {
+                if (mirrorNav && pathsMatch && steps > 0) {
                   let localTarget = localPath
                   for (let i = 0; i < steps; i++) localTarget = localParentPath(localTarget)
                   void navigateLocalTo(localTarget)
@@ -704,7 +704,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
               onDropOnPane={(paths) => void handleUpload(paths, remotePath)}
               onSelect={(paths) => {
                 setSelected('remote', paths)
-                if (syncNav && pathsInSync) {
+                if (mirrorNav && pathsMatch) {
                   const names = new Set(paths.map((p) => p.split('/').pop() ?? ''))
                   setLocalMirrorPaths(localEntries.filter((e) => e.type === 'directory' && names.has(e.name)).map((e) => e.path))
                 } else {
@@ -714,7 +714,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
               }}
               pane="remote"
               selected={remoteMirrorPaths.length > 0 ? [...remoteSelected, ...remoteMirrorPaths] : remoteSelected}
-              syncCandidates={syncCandidateKeys ?? undefined}
+              syncCandidates={mirrorCandidateKeys ?? undefined}
             />
             <div
               style={dropZoneStyle}
