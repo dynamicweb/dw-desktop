@@ -12,12 +12,6 @@ interface CompareToolbarProps {
   onSyncNavChange: (v: boolean) => void
 }
 
-const MODES: { value: CompareMode; label: string }[] = [
-  { value: 'off', label: 'Off' },
-  { value: 'auto', label: 'Auto' },
-  { value: 'on', label: 'On' }
-]
-
 const STATUSES: DiffStatus[] = ['different', 'remote-only', 'local-only', 'identical']
 
 const PILL_COLOR: Record<DiffStatus, string> = {
@@ -46,6 +40,7 @@ export default function CompareToolbar({
 }: CompareToolbarProps): React.JSX.Element {
   const counts = countByStatus(diffMap)
   const hasDiff = diffMap.size > 0
+  const compareOn = mode !== 'off'
 
   return (
     <div
@@ -60,49 +55,27 @@ export default function CompareToolbar({
         minHeight: 28
       }}
     >
-      <span
+      <button
+        type="button"
+        title={compareOn ? 'Disable compare' : 'Enable compare — auto-detects matching folder structures'}
+        onClick={() => onModeChange(compareOn ? 'off' : 'auto')}
         style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
           fontSize: 11,
-          color: 'var(--text-subtle)',
-          userSelect: 'none',
-          letterSpacing: 0.3,
-          textTransform: 'uppercase'
+          padding: '2px 10px',
+          borderRadius: 'var(--r-sm)',
+          border: `1px solid ${compareOn ? 'var(--accent)' : 'var(--border)'}`,
+          cursor: 'pointer',
+          background: compareOn ? 'var(--accent)' : 'var(--surface-raised)',
+          color: compareOn ? '#fff' : 'var(--text-subtle)',
+          transition: 'background 80ms ease, color 80ms ease, border-color 80ms ease',
+          userSelect: 'none'
         }}
       >
         Compare
-      </span>
-      <div
-        style={{
-          display: 'flex',
-          borderRadius: 'var(--r-sm)',
-          overflow: 'hidden',
-          border: '1px solid var(--border)'
-        }}
-      >
-        {MODES.map((m, i) => {
-          const active = mode === m.value
-          return (
-            <button
-              key={m.value}
-              type="button"
-              onClick={() => onModeChange(m.value)}
-              style={{
-                fontSize: 11,
-                padding: '2px 10px',
-                border: 'none',
-                borderLeft: i === 0 ? 'none' : '1px solid var(--border)',
-                cursor: 'pointer',
-                background: active ? 'var(--accent)' : 'var(--surface-raised)',
-                color: active ? '#fff' : 'var(--text-subtle)',
-                transition: 'background 80ms ease, color 80ms ease',
-                userSelect: 'none'
-              }}
-            >
-              {m.label}
-            </button>
-          )
-        })}
-      </div>
+      </button>
 
       {pathsInSync && (
         <>
