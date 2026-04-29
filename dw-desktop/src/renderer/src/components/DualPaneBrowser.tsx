@@ -41,6 +41,10 @@ function parentPath(path: string): string {
   return parent
 }
 
+function pathSegmentCount(p: string): number {
+  return p.replace(/\\/g, '/').replace(/^\//, '').replace(/\/$/, '').split('/').filter(Boolean).length
+}
+
 function localParentPath(path: string): string {
   if (!path) return ''
   // Windows drive root (C:\, C:/, or C:) → step up to the drives view.
@@ -445,9 +449,26 @@ export default function DualPaneBrowser(): React.JSX.Element {
         <PaneHeader
           path={localPath}
           label="Local"
-          onNavigateUp={() => void navigateLocalTo(localParentPath(localPath))}
-          onRefresh={() => void loadLocal(localPath)}
-          onNavigateTo={(p) => void navigateLocalTo(p)}
+          onNavigateUp={() => {
+            void navigateLocalTo(localParentPath(localPath))
+            if (syncNav && pathsInSync) void navigateRemoteTo(parentPath(remotePath))
+          }}
+          onRefresh={() => {
+            void loadLocal(localPath)
+            if (syncNav && pathsInSync && activeEnv) {
+              setRemoteLoading(true)
+              void loadRemote(activeEnv.name, remotePath).finally(() => setRemoteLoading(false))
+            }
+          }}
+          onNavigateTo={(p) => {
+            const steps = pathSegmentCount(localPath) - pathSegmentCount(p)
+            void navigateLocalTo(p)
+            if (syncNav && pathsInSync && steps > 0) {
+              let remoteTarget = remotePath
+              for (let i = 0; i < steps; i++) remoteTarget = parentPath(remoteTarget)
+              void navigateRemoteTo(remoteTarget)
+            }
+          }}
           actions={
             localSelected.length > 1 ? (
               <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{localSelected.length} selected</span>
@@ -633,14 +654,24 @@ export default function DualPaneBrowser(): React.JSX.Element {
               path={toDisplayRemotePath(remotePath)}
               label={envLabel(activeEnv)}
               sublabel={activeEnv.host}
-              onNavigateUp={() => void navigateRemoteTo(parentPath(remotePath))}
+              onNavigateUp={() => {
+                void navigateRemoteTo(parentPath(remotePath))
+                if (syncNav && pathsInSync) void navigateLocalTo(localParentPath(localPath))
+              }}
               onRefresh={() => {
                 setRemoteLoading(true)
                 void loadRemote(activeEnv.name, remotePath).finally(() => setRemoteLoading(false))
+                if (syncNav && pathsInSync) void loadLocal(localPath)
               }}
               onNavigateTo={(displayPath) => {
                 const virtual = displayPath.replace(/^\/Files/, '') || '/'
+                const steps = pathSegmentCount(remotePath) - pathSegmentCount(virtual)
                 void navigateRemoteTo(virtual)
+                if (syncNav && pathsInSync && steps > 0) {
+                  let localTarget = localPath
+                  for (let i = 0; i < steps; i++) localTarget = localParentPath(localTarget)
+                  void navigateLocalTo(localTarget)
+                }
               }}
               actions={
                 remoteSelected.length > 1 ? (
