@@ -28,8 +28,6 @@ const LABEL: Record<DiffStatus, string> = {
   identical: 'equal'
 }
 
-const STRIPE = (color: string): string =>
-  `repeating-linear-gradient(45deg, ${color}, ${color} 3px, color-mix(in srgb, ${color} 35%, transparent) 3px, color-mix(in srgb, ${color} 35%, transparent) 7px)`
 
 export default function CompareToolbar({
   mode,
@@ -76,14 +74,10 @@ export default function CompareToolbar({
           letterSpacing: '0.04em',
           textTransform: 'uppercase',
           borderRadius: 'var(--r-sm)',
-          border: '1px solid var(--border-strong)',
+          border: compareOn && !pathsMatch ? '1px solid var(--accent)' : '1px solid var(--border-strong)',
           cursor: 'pointer',
-          background: compareOn
-            ? pathsMatch
-              ? 'var(--accent)'
-              : STRIPE('var(--accent)')
-            : 'var(--surface-raised)',
-          color: compareOn ? '#fff' : 'var(--text-subtle)',
+          background: compareOn && pathsMatch ? 'var(--accent)' : 'var(--surface-raised)',
+          color: compareOn ? (pathsMatch ? '#fff' : 'var(--accent)') : 'var(--text-subtle)',
           transition: 'background 80ms ease-out, color 80ms ease-out',
           userSelect: 'none'
         }}
@@ -157,14 +151,10 @@ export default function CompareToolbar({
           letterSpacing: '0.04em',
           textTransform: 'uppercase',
           borderRadius: 'var(--r-sm)',
-          border: '1px solid var(--border-strong)',
+          border: mirrorNav && !pathsMatch ? '1px solid var(--accent)' : '1px solid var(--border-strong)',
           cursor: 'pointer',
-          background: mirrorNav
-            ? pathsMatch
-              ? 'var(--accent)'
-              : STRIPE('var(--accent)')
-            : 'var(--surface-raised)',
-          color: mirrorNav ? '#fff' : 'var(--text-subtle)',
+          background: mirrorNav && pathsMatch ? 'var(--accent)' : 'var(--surface-raised)',
+          color: mirrorNav ? (pathsMatch ? '#fff' : 'var(--accent)') : 'var(--text-subtle)',
           transition: 'background 80ms ease-out, color 80ms ease-out',
           userSelect: 'none'
         }}
