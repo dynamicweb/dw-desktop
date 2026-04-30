@@ -159,7 +159,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
         paneResult.data?.localPath ?? activeEnv.localStartPath ?? (await window.dw.fs.homedir())
       await loadRemote(activeEnv.name, savedRemote)
       if (cancelled) return
-      if (resolvedLocal && resolvedLocal !== useFileStore.getState().localPath) {
+      const norm = (p: string): string => p.replace(/\\/g, '/')
+      if (resolvedLocal && norm(resolvedLocal) !== norm(useFileStore.getState().localPath)) {
         setLocalLoading(true)
         const ok = await loadLocal(resolvedLocal, activeEnv.name)
         if (!ok && !cancelled) {
