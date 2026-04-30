@@ -98,6 +98,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const [remoteBackStack, setRemoteBackStack] = useState<string[]>([])
   const [remoteForwardStack, setRemoteForwardStack] = useState<string[]>([])
   const [pathsMatch, setPathsInSync] = useState(false)
+  const [filterActive, setFilterActive] = useState(false)
   const [localMirrorPaths, setLocalMirrorPaths] = useState<string[]>([])
   const [remoteMirrorPaths, setRemoteMirrorPaths] = useState<string[]>([])
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -407,6 +408,13 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const localSelected = selected.pane === 'local' ? selected.paths : []
   const remoteSelected = selected.pane === 'remote' ? selected.paths : []
 
+  const visibleLocalEntries = filterActive && diffMap.size > 0
+    ? localEntries.filter((e) => { const s = diffMap.get(diffKey(e)); return s !== undefined && highlightedStatuses.includes(s) })
+    : localEntries
+  const visibleRemoteEntries = filterActive && diffMap.size > 0
+    ? remoteEntries.filter((e) => { const s = diffMap.get(diffKey(e)); return s !== undefined && highlightedStatuses.includes(s) })
+    : remoteEntries
+
   const dropZoneStyle: React.CSSProperties = {
     padding: '7px 12px',
     borderTop: '1px solid var(--border)',
@@ -428,6 +436,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
           mirrorNav={mirrorNav}
           onMirrorNavChange={setMirrorNav}
           pathsMatch={pathsMatch}
+          filterActive={filterActive}
+          onFilterChange={setFilterActive}
         />
       )}
     <div ref={containerRef} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -487,7 +497,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
         <FileList
           diffMap={diffMap}
           dropTarget
-          entries={localEntries}
+          entries={visibleLocalEntries}
           highlightedStatuses={highlightedStatuses}
           loading={localLoading}
           onContextMenu={(entry, x, y) => setContextMenu({ entry, x, y, pane: 'local' })}
@@ -708,7 +718,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
             <FileList
               diffMap={diffMap}
               dropTarget
-              entries={remoteEntries}
+              entries={visibleRemoteEntries}
               highlightedStatuses={highlightedStatuses}
               loading={remoteLoading}
               onContextMenu={(entry, x, y) => setContextMenu({ entry, x, y, pane: 'remote' })}
