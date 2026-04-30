@@ -366,7 +366,12 @@ export default function DualPaneBrowser(): React.JSX.Element {
     const isMirror = !!(activeEnv && mirrorCandidateKeys?.has(diffKey(entry)))
     await navigateLocalTo(entry.path)
     if (isMirror) {
-      const remoteTarget = remotePath === '/' ? `/${entry.name}` : `${remotePath}/${entry.name}`
+      // Use the actual remote folder name to handle case differences (e.g. Scripts vs scripts)
+      const remoteMatch = remoteEntries.find(
+        (e) => e.type === 'directory' && e.name.toLowerCase() === entry.name.toLowerCase()
+      )
+      const name = remoteMatch?.name ?? entry.name
+      const remoteTarget = remotePath === '/' ? `/${name}` : `${remotePath}/${name}`
       await navigateRemoteTo(remoteTarget)
     }
   }
@@ -376,8 +381,13 @@ export default function DualPaneBrowser(): React.JSX.Element {
     const isMirror = mirrorCandidateKeys?.has(diffKey(entry)) ?? false
     await navigateRemoteTo(entry.path)
     if (isMirror) {
+      // Use the actual local folder name to handle case differences
+      const localMatch = localEntries.find(
+        (e) => e.type === 'directory' && e.name.toLowerCase() === entry.name.toLowerCase()
+      )
       const sep = localPath.includes('\\') ? '\\' : '/'
-      const localTarget = localPath ? `${localPath}${sep}${entry.name}` : entry.name
+      const name = localMatch?.name ?? entry.name
+      const localTarget = localPath ? `${localPath}${sep}${name}` : name
       await navigateLocalTo(localTarget)
     }
   }
@@ -611,8 +621,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
           onSelect={(paths) => {
             setSelected('local', paths)
             if (mirrorNav && pathsMatch) {
-              const names = new Set(paths.map((p) => p.split(/[\\/]/).pop() ?? ''))
-              setRemoteMirrorPaths(remoteEntries.filter((e) => e.type === 'directory' && names.has(e.name)).map((e) => e.path))
+              const names = new Set(paths.map((p) => (p.split(/[\\/]/).pop() ?? '').toLowerCase()))
+              setRemoteMirrorPaths(remoteEntries.filter((e) => e.type === 'directory' && names.has(e.name.toLowerCase())).map((e) => e.path))
             } else {
               setRemoteMirrorPaths([])
             }
@@ -843,8 +853,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
               onSelect={(paths) => {
                 setSelected('remote', paths)
                 if (mirrorNav && pathsMatch) {
-                  const names = new Set(paths.map((p) => p.split('/').pop() ?? ''))
-                  setLocalMirrorPaths(localEntries.filter((e) => e.type === 'directory' && names.has(e.name)).map((e) => e.path))
+                  const names = new Set(paths.map((p) => (p.split('/').pop() ?? '').toLowerCase()))
+                  setLocalMirrorPaths(localEntries.filter((e) => e.type === 'directory' && names.has(e.name.toLowerCase())).map((e) => e.path))
                 } else {
                   setLocalMirrorPaths([])
                 }
