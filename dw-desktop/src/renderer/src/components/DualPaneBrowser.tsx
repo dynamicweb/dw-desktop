@@ -555,7 +555,6 @@ export default function DualPaneBrowser(): React.JSX.Element {
         <PaneHeader
           path={localPath}
           label="Local"
-          upDisabled={!localPath}
           onNavigateUp={() => {
             void navigateLocalTo(localParentPath(localPath))
             if (mirrorNav && pathsMatch) void navigateRemoteTo(parentPath(remotePath))
