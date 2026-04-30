@@ -66,7 +66,7 @@ function Breadcrumb({
         fontSize: 11,
         fontFamily: 'var(--font-mono)',
         flex: 1,
-        minWidth: 0,
+        minWidth: 80,
         overflow: 'hidden',
         whiteSpace: 'nowrap'
       }}
@@ -215,8 +215,9 @@ export default function PaneHeader({
           display: 'flex',
           alignItems: 'baseline',
           gap: 6,
-          flexShrink: 0,
-          minWidth: 0
+          flexShrink: 1,
+          minWidth: 0,
+          overflow: 'hidden'
         }}
       >
         <span
@@ -230,6 +231,8 @@ export default function PaneHeader({
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
             maxWidth: 120,
+            minWidth: 0,
+            flexShrink: 1,
             verticalAlign: 'baseline'
           }}
           title={label}
@@ -247,6 +250,8 @@ export default function PaneHeader({
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
               maxWidth: 140,
+              minWidth: 0,
+              flexShrink: 1,
               verticalAlign: 'baseline'
             }}
             title={sublabel}
