@@ -206,6 +206,19 @@ export default function DualPaneBrowser(): React.JSX.Element {
     }
   }, [compareMode, localEntries, remoteEntries, localPath, remotePath, setDiffMap])
 
+  const mirrorActiveRef = useRef(false)
+  useEffect(() => {
+    if (localLoading || remoteLoading) return
+    const active = mirrorNav && pathsMatch
+    if (active && !mirrorActiveRef.current) {
+      setLocalBackStack([])
+      setLocalForwardStack([])
+      setRemoteBackStack([])
+      setRemoteForwardStack([])
+    }
+    mirrorActiveRef.current = active
+  }, [mirrorNav, pathsMatch, localLoading, remoteLoading])
+
   const mirrorCandidateKeys = useMemo(() => {
     if (!pathsMatch || !mirrorNav) return null
     if (diffMap.size > 0) {
@@ -294,17 +307,27 @@ export default function DualPaneBrowser(): React.JSX.Element {
     void navigateRemoteTo(relParts.length > 0 ? '/' + relParts.join('/') : '/')
   }
 
+  function getLocalFilesBase(): { base: string; sep: string } | null {
+    // Try current localPath first, then fall back to localStartPath from env settings
+    for (const candidate of [localPath, activeEnv?.localStartPath ?? '']) {
+      if (!candidate) continue
+      const norm = candidate.replace(/\\/g, '/')
+      const parts = norm.split('/')
+      const idx = parts.findIndex((s) => s.toLowerCase() === 'files')
+      if (idx === -1) continue
+      const sep = candidate.includes('\\') ? '\\' : '/'
+      const base = parts.slice(0, idx + 1).join('/')
+      return { base: sep === '\\' ? base.replace(/\//g, '\\') : base, sep }
+    }
+    return null
+  }
+
   function matchLocalToRemote(): void {
-    // Navigate local to match remote's /Files/… path — remotePath already has correct API casing
-    const norm = localPath.replace(/\\/g, '/')
-    const parts = norm.split('/')
-    const filesIdx = parts.findIndex((s) => s.toLowerCase() === 'files')
-    if (filesIdx === -1) return
-    const sep = localPath.includes('\\') ? '\\' : '/'
-    const base = parts.slice(0, filesIdx + 1).join('/')
+    const filesBase = getLocalFilesBase()
+    if (!filesBase) return
+    const { base, sep } = filesBase
     const relParts = remotePath.split('/').filter(Boolean)
-    const newLocal = (sep === '\\' ? base.replace(/\//g, '\\') : base) +
-      (relParts.length > 0 ? sep + relParts.join(sep) : '')
+    const newLocal = base + (relParts.length > 0 ? sep + relParts.join(sep) : '')
     void navigateLocalTo(newLocal)
   }
 
@@ -433,13 +456,17 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const remoteSelected = selected.pane === 'remote' ? selected.paths : []
 
   const localOnFiles = !!getDwRelativeTail(localPath)
-  const remoteOnFiles = !!getDwRelativeTail(toDisplayRemotePath(remotePath))
+  const remoteOnFiles = !!getDwRelativeTail(toDisplayRemotePath(remotePath)) && !!(
+    getDwRelativeTail(localPath) || (activeEnv?.localStartPath ? getDwRelativeTail(activeEnv.localStartPath) : null)
+  )
 
-  const visibleLocalEntries = filterActive && diffMap.size > 0
-    ? localEntries.filter((e) => { const s = diffMap.get(diffKey(e)); return s !== undefined && highlightedStatuses.includes(s) })
+  const localFilterStatuses = highlightedStatuses.filter((s) => s !== 'remote-only')
+  const remoteFilterStatuses = highlightedStatuses.filter((s) => s !== 'local-only')
+  const visibleLocalEntries = filterActive && diffMap.size > 0 && localFilterStatuses.length > 0
+    ? localEntries.filter((e) => { const s = diffMap.get(diffKey(e)); return s !== undefined && localFilterStatuses.includes(s) })
     : localEntries
-  const visibleRemoteEntries = filterActive && diffMap.size > 0
-    ? remoteEntries.filter((e) => { const s = diffMap.get(diffKey(e)); return s !== undefined && highlightedStatuses.includes(s) })
+  const visibleRemoteEntries = filterActive && diffMap.size > 0 && remoteFilterStatuses.length > 0
+    ? remoteEntries.filter((e) => { const s = diffMap.get(diffKey(e)); return s !== undefined && remoteFilterStatuses.includes(s) })
     : remoteEntries
 
   const dropZoneStyle: React.CSSProperties = {
@@ -476,7 +503,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
       {/* Local pane */}
       <div
         onMouseDown={(e) => {
-          if (e.button === 3 && localBackStack.length > 0) {
+          if (e.button === 3) {
             e.preventDefault()
             void goBackLocal()
             if (mirrorNav && pathsMatch) void goBackRemote()
@@ -656,7 +683,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
       {/* Remote pane */}
       <div
         onMouseDown={(e) => {
-          if (e.button === 3 && activeEnv && remoteBackStack.length > 0) {
+          if (e.button === 3 && activeEnv) {
             e.preventDefault()
             void goBackRemote()
             if (mirrorNav && pathsMatch) void goBackLocal()

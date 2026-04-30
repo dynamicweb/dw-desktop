@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import type { CompareMode, DiffStatus } from '../../../shared/types'
 import { countByStatus } from '../utils/compareEntries'
 
@@ -20,7 +20,7 @@ interface CompareToolbarProps {
   isLoading: boolean
 }
 
-function Expand({ show, children }: { show: boolean; children: React.ReactNode }): React.JSX.Element {
+function Expand({ show, animate, children }: { show: boolean; animate?: boolean; children: React.ReactNode }): React.JSX.Element {
   return (
     <div style={{
       display: 'flex',
@@ -28,9 +28,9 @@ function Expand({ show, children }: { show: boolean; children: React.ReactNode }
       maxWidth: show ? 600 : 0,
       opacity: show ? 1 : 0,
       overflow: 'hidden',
-      transition: show
-        ? 'max-width 140ms ease-out, opacity 120ms ease-out'
-        : 'max-width 80ms ease-in, opacity 60ms ease-in',
+      transition: animate
+        ? (show ? 'max-width 140ms ease-out, opacity 120ms ease-out' : 'max-width 80ms ease-in, opacity 60ms ease-in')
+        : 'none',
       pointerEvents: show ? 'auto' : 'none',
     }}>
       {children}
@@ -113,15 +113,32 @@ export default function CompareToolbar({
   onMatchLocalToRemote,
   isLoading
 }: CompareToolbarProps): React.JSX.Element {
-  const counts = countByStatus(diffMap)
-  const hasDiff = diffMap.size > 0
+  const stableDiffMapRef = useRef(diffMap)
+  if (!isLoading) stableDiffMapRef.current = diffMap
+  const stableDiffMap = isLoading ? stableDiffMapRef.current : diffMap
+
+  const counts = countByStatus(stableDiffMap)
+  const hasDiff = stableDiffMap.size > 0
   const compareOn = mode !== 'off'
+
+  const [compareAnimate, setCompareAnimate] = useState(false)
+  const compareAnimateTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function triggerCompareAnimation(): void {
+    if (compareAnimateTimer.current) clearTimeout(compareAnimateTimer.current)
+    setCompareAnimate(true)
+    compareAnimateTimer.current = setTimeout(() => setCompareAnimate(false), 300)
+  }
 
   const stablePathsMatchRef = useRef(pathsMatch)
   if (!isLoading) stablePathsMatchRef.current = pathsMatch
   const stablePathsMatch = isLoading ? stablePathsMatchRef.current : pathsMatch
-  const showFilter = compareOn && hasDiff && !isLoading
-  const showMirrorMatch = mirrorNav && !pathsMatch && (localOnFiles || remoteOnFiles) && !isLoading
+
+  const stableHasDiffRef = useRef(hasDiff)
+  if (!isLoading) stableHasDiffRef.current = hasDiff
+  const stableHasDiff = isLoading ? stableHasDiffRef.current : hasDiff
+
+  const showFilter = compareOn && stableHasDiff
+  const showMirrorMatch = !stablePathsMatch && (localOnFiles || remoteOnFiles) && !isLoading
 
   const compareBorder = compareOn && !stablePathsMatch ? '1px solid var(--accent)' : '1px solid var(--border-strong)'
   const compareBg = compareOn && stablePathsMatch ? 'var(--accent)' : 'var(--surface-raised)'
@@ -225,7 +242,7 @@ export default function CompareToolbar({
                 : 'Compare is enabled — navigate both panes to a matching /Files/… folder to activate'
               : 'Enable compare — detects differences by comparing file sizes'
           }
-          onClick={() => onModeChange(compareOn ? 'off' : 'auto')}
+          onClick={() => { triggerCompareAnimation(); onModeChange(compareOn ? 'off' : 'auto') }}
           style={{
             ...segBase,
             background: compareBg,
@@ -236,7 +253,7 @@ export default function CompareToolbar({
         >
           ⊟ Compare
         </button>
-        <Expand show={showFilter}>
+        <Expand show={showFilter} animate={compareAnimate}>
           <button
             type="button"
             title={filterActive ? 'Show all files' : 'Show only selected status files'}
@@ -260,7 +277,7 @@ export default function CompareToolbar({
         </Expand>
       </div>
 
-      <Expand show={hasDiff && !isLoading}>
+      <Expand show={stableHasDiff} animate={compareAnimate}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {STATUSES.map((status) => {
             const count = counts[status]
