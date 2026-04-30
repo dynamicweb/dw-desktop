@@ -490,6 +490,19 @@ export default function DualPaneBrowser(): React.JSX.Element {
     !!getDwRelativeTail(localPath) || !!activeEnv?.localStartPath
   )
 
+  const [matchLocalExists, setMatchLocalExists] = useState(true)
+  useEffect(() => {
+    if (!remoteOnFiles) { setMatchLocalExists(true); return }
+    const filesBase = getLocalFilesBase()
+    if (!filesBase) { setMatchLocalExists(false); return }
+    const { base, sep } = filesBase
+    const relParts = remotePath.split('/').filter(Boolean)
+    const target = base + (relParts.length > 0 ? sep + relParts.join(sep) : '')
+    let cancelled = false
+    void window.dw.fs.list(target).then((r) => { if (!cancelled) setMatchLocalExists(r.ok) })
+    return () => { cancelled = true }
+  }, [remotePath, localPath, activeEnv?.name, remoteOnFiles])
+
   const diffCounts = countByStatus(diffMap)
   const localFilterStatuses = highlightedStatuses.filter((s) => s !== 'remote-only' && diffCounts[s] > 0)
   const remoteFilterStatuses = highlightedStatuses.filter((s) => s !== 'local-only' && diffCounts[s] > 0)
@@ -525,6 +538,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
           onFilterChange={setFilterActive}
           localOnFiles={localOnFiles}
           remoteOnFiles={remoteOnFiles}
+          matchLocalPathExists={matchLocalExists}
           onMatchRemoteToLocal={matchRemoteToLocal}
           onMatchLocalToRemote={matchLocalToRemote}
           isLoading={localLoading || remoteLoading}

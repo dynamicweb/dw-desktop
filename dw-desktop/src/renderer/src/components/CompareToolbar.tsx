@@ -15,6 +15,7 @@ interface CompareToolbarProps {
   onFilterChange: (v: boolean) => void
   localOnFiles: boolean
   remoteOnFiles: boolean
+  matchLocalPathExists: boolean
   onMatchRemoteToLocal: () => void
   onMatchLocalToRemote: () => void
   isLoading: boolean
@@ -109,6 +110,7 @@ export default function CompareToolbar({
   onFilterChange,
   localOnFiles,
   remoteOnFiles,
+  matchLocalPathExists,
   onMatchRemoteToLocal,
   onMatchLocalToRemote,
   isLoading
@@ -208,9 +210,13 @@ export default function CompareToolbar({
           <button
             className="toolbar-btn"
             type="button"
-            title={remoteOnFiles ? 'Navigate local to match remote path' : 'Remote pane is not inside a /Files/… folder'}
+            title={
+              !remoteOnFiles ? 'Remote pane is not inside a /Files/… folder'
+              : !matchLocalPathExists ? 'Local folder does not exist for this remote path'
+              : 'Navigate local to match remote path'
+            }
             onClick={onMatchLocalToRemote}
-            disabled={!remoteOnFiles}
+            disabled={!remoteOnFiles || !matchLocalPathExists}
             style={{
               ...segBase,
               display: 'flex',
@@ -223,8 +229,8 @@ export default function CompareToolbar({
               borderRadius: '0 var(--r-sm) var(--r-sm) 0',
               background: 'var(--surface-raised)',
               color: 'var(--accent)',
-              opacity: remoteOnFiles ? 1 : 0.35,
-              cursor: remoteOnFiles ? 'pointer' : 'default',
+              opacity: remoteOnFiles && matchLocalPathExists ? 1 : 0.35,
+              cursor: remoteOnFiles && matchLocalPathExists ? 'pointer' : 'default',
             }}
           >
             <ArrowIcon direction="left" />
