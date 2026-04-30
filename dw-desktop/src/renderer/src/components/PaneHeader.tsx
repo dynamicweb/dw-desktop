@@ -5,6 +5,7 @@ interface PaneHeaderProps {
   sublabel?: string
   path: string
   onNavigateUp: () => void
+  upDisabled?: boolean
   onRefresh: () => void
   onNavigateTo?: (path: string) => void
   actions?: React.ReactNode
@@ -126,6 +127,7 @@ export default function PaneHeader({
   sublabel,
   path,
   onNavigateUp,
+  upDisabled,
   onRefresh,
   onNavigateTo,
   actions
@@ -145,11 +147,7 @@ export default function PaneHeader({
 
   function commitEdit(): void {
     if (onNavigateTo) {
-      const trimmed = inputValue.trim()
-      // For remote panes the path is displayed as /Files/… — convert back to virtual path
-      const virtual = trimmed.replace(/^\/Files(\/|$)/, (_, sep) => sep ?? '/')
-      const isRemoteDisplay = trimmed.startsWith('/Files')
-      onNavigateTo(isRemoteDisplay ? (virtual || '/') : trimmed)
+      onNavigateTo(inputValue.trim())
     }
     setEditing(false)
   }
@@ -282,6 +280,8 @@ export default function PaneHeader({
           title="Up"
           type="button"
           className="icon-btn"
+          disabled={upDisabled}
+          style={{ opacity: upDisabled ? 0.3 : undefined, cursor: upDisabled ? 'default' : undefined }}
         >
           ↑
         </button>
