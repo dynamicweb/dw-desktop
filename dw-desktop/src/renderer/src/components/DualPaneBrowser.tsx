@@ -284,6 +284,30 @@ export default function DualPaneBrowser(): React.JSX.Element {
     setRemoteLoading(false)
   }
 
+  function matchRemoteToLocal(): void {
+    // Navigate remote to match local's /Files/… path — extract original-cased segments
+    const norm = localPath.replace(/\\/g, '/')
+    const parts = norm.split('/')
+    const filesIdx = parts.findIndex((s) => s.toLowerCase() === 'files')
+    if (filesIdx === -1) return
+    const relParts = parts.slice(filesIdx + 1).filter(Boolean)
+    void navigateRemoteTo(relParts.length > 0 ? '/' + relParts.join('/') : '/')
+  }
+
+  function matchLocalToRemote(): void {
+    // Navigate local to match remote's /Files/… path — remotePath already has correct API casing
+    const norm = localPath.replace(/\\/g, '/')
+    const parts = norm.split('/')
+    const filesIdx = parts.findIndex((s) => s.toLowerCase() === 'files')
+    if (filesIdx === -1) return
+    const sep = localPath.includes('\\') ? '\\' : '/'
+    const base = parts.slice(0, filesIdx + 1).join('/')
+    const relParts = remotePath.split('/').filter(Boolean)
+    const newLocal = (sep === '\\' ? base.replace(/\//g, '\\') : base) +
+      (relParts.length > 0 ? sep + relParts.join(sep) : '')
+    void navigateLocalTo(newLocal)
+  }
+
   async function navigateLocal(entry: FileEntry): Promise<void> {
     if (entry.type !== 'directory') return
     const isMirror = !!(activeEnv && mirrorCandidateKeys?.has(diffKey(entry)))
@@ -408,6 +432,9 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const localSelected = selected.pane === 'local' ? selected.paths : []
   const remoteSelected = selected.pane === 'remote' ? selected.paths : []
 
+  const localOnFiles = !!getDwRelativeTail(localPath)
+  const remoteOnFiles = !!getDwRelativeTail(toDisplayRemotePath(remotePath))
+
   const visibleLocalEntries = filterActive && diffMap.size > 0
     ? localEntries.filter((e) => { const s = diffMap.get(diffKey(e)); return s !== undefined && highlightedStatuses.includes(s) })
     : localEntries
@@ -438,6 +465,11 @@ export default function DualPaneBrowser(): React.JSX.Element {
           pathsMatch={pathsMatch}
           filterActive={filterActive}
           onFilterChange={setFilterActive}
+          localOnFiles={localOnFiles}
+          remoteOnFiles={remoteOnFiles}
+          onMatchRemoteToLocal={matchRemoteToLocal}
+          onMatchLocalToRemote={matchLocalToRemote}
+          isLoading={localLoading || remoteLoading}
         />
       )}
     <div ref={containerRef} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
