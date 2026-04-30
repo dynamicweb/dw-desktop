@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react'
+
 interface PaneHeaderProps {
   label: string
   sublabel?: string
@@ -10,14 +12,13 @@ interface PaneHeaderProps {
 
 function Breadcrumb({ path, onNavigateTo }: { path: string; onNavigateTo: (path: string) => void }): React.JSX.Element {
   const isWindows = path.includes('\\') || /^[A-Za-z]:/.test(path)
-  const sep = isWindows ? '\\' : '/'
   const parts = path.replace(/[/\\]$/, '').split(/[\\/]/).filter(Boolean)
 
   function segmentPath(i: number): string {
-    const joined = parts.slice(0, i + 1).join(sep)
+    const joined = parts.slice(0, i + 1).join('/')
     if (isWindows) {
       // A bare drive letter (C:) needs a trailing separator to be a valid root path.
-      if (i === 0 && /^[A-Za-z]:$/.test(joined)) return joined + sep
+      if (i === 0 && /^[A-Za-z]:$/.test(joined)) return joined + '/'
       return joined
     }
     return '/' + joined
@@ -78,7 +79,7 @@ function Breadcrumb({ path, onNavigateTo }: { path: string; onNavigateTo: (path:
         const isLast = i === parts.length - 1
         return (
           <span key={segmentPath(i)} style={{ display: 'flex', alignItems: 'center', flexShrink: i < parts.length - 1 ? 1 : 0, minWidth: 0 }}>
-            <span style={{ color: 'var(--text-subtle)', flexShrink: 0 }}>{sep}</span>
+            <span style={{ color: 'var(--text-subtle)', flexShrink: 0 }}>/</span>
             <button
               type="button"
               onClick={() => !isLast && onNavigateTo(segmentPath(i))}
@@ -106,6 +107,20 @@ function Breadcrumb({ path, onNavigateTo }: { path: string; onNavigateTo: (path:
   )
 }
 
+function PencilIcon(): React.JSX.Element {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" style={{ display: 'block' }}>
+      <path
+        d="M11.5 2.5L13.5 4.5L5.5 12.5H3.5V10.5L11.5 2.5Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  )
+}
+
 export default function PaneHeader({
   label,
   sublabel,
@@ -115,6 +130,37 @@ export default function PaneHeader({
   onNavigateTo,
   actions
 }: PaneHeaderProps): React.JSX.Element {
+  const [editing, setEditing] = useState(false)
+  const [inputValue, setInputValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function startEdit(): void {
+    setInputValue(path.replace(/\\/g, '/'))
+    setEditing(true)
+  }
+
+  function cancelEdit(): void {
+    setEditing(false)
+  }
+
+  function commitEdit(): void {
+    if (onNavigateTo) {
+      const trimmed = inputValue.trim()
+      // For remote panes the path is displayed as /Files/… — convert back to virtual path
+      const virtual = trimmed.replace(/^\/Files(\/|$)/, (_, sep) => sep ?? '/')
+      const isRemoteDisplay = trimmed.startsWith('/Files')
+      onNavigateTo(isRemoteDisplay ? (virtual || '/') : trimmed)
+    }
+    setEditing(false)
+  }
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }
+  }, [editing])
+
   return (
     <div
       style={{
@@ -172,7 +218,31 @@ export default function PaneHeader({
           flexShrink: 0
         }}
       />
-      {onNavigateTo ? (
+
+      {editing ? (
+        <input
+          ref={inputRef}
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commitEdit() }
+            if (e.key === 'Escape') { e.preventDefault(); cancelEdit() }
+          }}
+          onBlur={cancelEdit}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 11,
+            fontFamily: 'var(--font-mono)',
+            background: 'var(--surface-raised)',
+            color: 'var(--text)',
+            border: '1px solid var(--accent)',
+            borderRadius: 'var(--r-sm)',
+            padding: '1px 6px',
+            outline: 'none',
+          }}
+        />
+      ) : onNavigateTo ? (
         <Breadcrumb path={path} onNavigateTo={onNavigateTo} />
       ) : (
         <span
@@ -191,8 +261,21 @@ export default function PaneHeader({
           {path}
         </span>
       )}
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
         {actions}
+        {onNavigateTo && (
+          <button
+            aria-label="Edit path"
+            onClick={startEdit}
+            title="Edit path"
+            type="button"
+            className="icon-btn"
+            style={{ opacity: editing ? 0 : 1, pointerEvents: editing ? 'none' : 'auto' }}
+          >
+            <PencilIcon />
+          </button>
+        )}
         <button
           aria-label="Navigate up"
           onClick={onNavigateUp}

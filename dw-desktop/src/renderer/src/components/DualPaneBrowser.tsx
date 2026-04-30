@@ -238,13 +238,16 @@ export default function DualPaneBrowser(): React.JSX.Element {
   }, [diffMap, pathsMatch, mirrorNav, localEntries, remoteEntries])
 
   // User-initiated navigation: push the current path onto back, clear forward.
-  async function navigateLocalTo(path: string): Promise<void> {
-    if (path === localPath) return
-    setLocalBackStack((b) => b[0] === localPath ? b : [localPath, ...b])
+  const normLocal = (p: string): string => p.replace(/\\/g, '/')
+
+  async function navigateLocalTo(path: string): Promise<boolean> {
+    if (normLocal(path) === normLocal(localPath)) return true
+    setLocalBackStack((b) => normLocal(b[0] ?? '') === normLocal(localPath) ? b : [localPath, ...b])
     setLocalForwardStack([])
     setLocalLoading(true)
-    await loadLocal(path)
+    const ok = await loadLocal(path)
     setLocalLoading(false)
+    return ok
   }
 
   // Back/forward use the history stacks rather than the parent path.
@@ -252,7 +255,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
     if (localBackStack.length === 0) return
     const [prev, ...rest] = localBackStack
     setLocalBackStack(rest)
-    setLocalForwardStack((f) => f[0] === localPath ? f : [localPath, ...f])
+    setLocalForwardStack((f) => normLocal(f[0] ?? '') === normLocal(localPath) ? f : [localPath, ...f])
     setLocalLoading(true)
     await loadLocal(prev)
     setLocalLoading(false)
@@ -262,7 +265,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
     if (localForwardStack.length === 0) return
     const [next, ...rest] = localForwardStack
     setLocalForwardStack(rest)
-    setLocalBackStack((b) => b[0] === localPath ? b : [localPath, ...b])
+    setLocalBackStack((b) => normLocal(b[0] ?? '') === normLocal(localPath) ? b : [localPath, ...b])
     setLocalLoading(true)
     await loadLocal(next)
     setLocalLoading(false)
@@ -298,6 +301,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
   }
 
   function matchRemoteToLocal(): void {
+    if (localLoading || remoteLoading) return
     // Navigate remote to match local's /Files/… path — extract original-cased segments
     const norm = localPath.replace(/\\/g, '/')
     const parts = norm.split('/')
@@ -314,21 +318,43 @@ export default function DualPaneBrowser(): React.JSX.Element {
       const norm = candidate.replace(/\\/g, '/')
       const parts = norm.split('/')
       const idx = parts.findIndex((s) => s.toLowerCase() === 'files')
-      if (idx === -1) continue
       const sep = candidate.includes('\\') ? '\\' : '/'
-      const base = parts.slice(0, idx + 1).join('/')
+      let base: string
+      if (idx !== -1) {
+        base = parts.slice(0, idx + 1).join('/')
+      } else if (candidate === (activeEnv?.localStartPath ?? '')) {
+        // localStartPath doesn't include a Files segment — treat it as the parent and append Files
+        base = norm.replace(/\/$/, '') + '/Files'
+      } else {
+        continue
+      }
       return { base: sep === '\\' ? base.replace(/\//g, '\\') : base, sep }
     }
     return null
   }
 
+  function getFilesRelativeParts(p: string): string[] | null {
+    const norm = p.replace(/\\/g, '/')
+    const parts = norm.split('/')
+    const idx = parts.findIndex((s) => s.toLowerCase() === 'files')
+    if (idx === -1) return null
+    return parts.slice(idx + 1).filter(Boolean)
+  }
+
   function matchLocalToRemote(): void {
+    if (localLoading || remoteLoading) return
     const filesBase = getLocalFilesBase()
     if (!filesBase) return
     const { base, sep } = filesBase
     const relParts = remotePath.split('/').filter(Boolean)
     const newLocal = base + (relParts.length > 0 ? sep + relParts.join(sep) : '')
-    void navigateLocalTo(newLocal)
+    const fallback = activeEnv?.localStartPath ?? base
+    void (async () => {
+      const ok = await navigateLocalTo(newLocal)
+      if (!ok && normLocal(newLocal) !== normLocal(fallback)) {
+        void navigateLocalTo(fallback)
+      }
+    })()
   }
 
   async function navigateLocal(entry: FileEntry): Promise<void> {
@@ -456,8 +482,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const remoteSelected = selected.pane === 'remote' ? selected.paths : []
 
   const localOnFiles = !!getDwRelativeTail(localPath)
-  const remoteOnFiles = !!getDwRelativeTail(toDisplayRemotePath(remotePath)) && !!(
-    getDwRelativeTail(localPath) || (activeEnv?.localStartPath ? getDwRelativeTail(activeEnv.localStartPath) : null)
+  const remoteOnFiles = !!getDwRelativeTail(toDisplayRemotePath(remotePath)) && (
+    !!getDwRelativeTail(localPath) || !!activeEnv?.localStartPath
   )
 
   const localFilterStatuses = highlightedStatuses.filter((s) => s !== 'remote-only')
@@ -539,12 +565,13 @@ export default function DualPaneBrowser(): React.JSX.Element {
             }
           }}
           onNavigateTo={(p) => {
-            const steps = pathSegmentCount(localPath) - pathSegmentCount(p)
-            void navigateLocalTo(p)
-            if (mirrorNav && pathsMatch && steps > 0) {
-              let remoteTarget = remotePath
-              for (let i = 0; i < steps; i++) remoteTarget = parentPath(remoteTarget)
-              void navigateRemoteTo(remoteTarget)
+            const localTarget = (p === '' || p === '/') ? '' : p
+            void navigateLocalTo(localTarget)
+            if (mirrorNav) {
+              const relParts = getFilesRelativeParts(localTarget)
+              if (relParts !== null) {
+                void navigateRemoteTo(relParts.length > 0 ? '/' + relParts.join('/') : '/')
+              }
             }
           }}
           actions={
@@ -760,12 +787,21 @@ export default function DualPaneBrowser(): React.JSX.Element {
               }}
               onNavigateTo={(displayPath) => {
                 const virtual = displayPath.replace(/^\/Files/, '') || '/'
-                const steps = pathSegmentCount(remotePath) - pathSegmentCount(virtual)
                 void navigateRemoteTo(virtual)
-                if (mirrorNav && pathsMatch && steps > 0) {
-                  let localTarget = localPath
-                  for (let i = 0; i < steps; i++) localTarget = localParentPath(localTarget)
-                  void navigateLocalTo(localTarget)
+                if (mirrorNav) {
+                  const filesBase = getLocalFilesBase()
+                  if (filesBase) {
+                    const { base, sep } = filesBase
+                    const relParts = virtual.split('/').filter(Boolean)
+                    void navigateLocalTo(base + (relParts.length > 0 ? sep + relParts.join(sep) : ''))
+                  } else if (pathsMatch) {
+                    const steps = pathSegmentCount(remotePath) - pathSegmentCount(virtual)
+                    if (steps > 0) {
+                      let localTarget = localPath
+                      for (let i = 0; i < steps; i++) localTarget = localParentPath(localTarget)
+                      void navigateLocalTo(localTarget)
+                    }
+                  }
                 }
               }}
               actions={

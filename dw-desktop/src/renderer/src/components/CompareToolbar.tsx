@@ -138,7 +138,7 @@ export default function CompareToolbar({
   const stableHasDiff = isLoading ? stableHasDiffRef.current : hasDiff
 
   const showFilter = compareOn && stableHasDiff
-  const showMirrorMatch = !stablePathsMatch && (localOnFiles || remoteOnFiles) && !isLoading
+  const showMirrorMatch = !stablePathsMatch && (localOnFiles || remoteOnFiles)
 
   const compareBorder = compareOn && !stablePathsMatch ? '1px solid var(--accent)' : '1px solid var(--border-strong)'
   const compareBg = compareOn && stablePathsMatch ? 'var(--accent)' : 'var(--surface-raised)'
@@ -160,6 +160,7 @@ export default function CompareToolbar({
       {/* Mirror button — segmented with path-match arrows when active but unsynced */}
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <button
+          className="toolbar-btn"
           type="button"
           title={
             mirrorNav
@@ -181,6 +182,7 @@ export default function CompareToolbar({
         </button>
         <Expand show={showMirrorMatch}>
           <button
+            className="toolbar-btn"
             type="button"
             title={localOnFiles ? 'Navigate remote to match local path' : 'Local pane is not inside a /Files/… folder'}
             onClick={onMatchRemoteToLocal}
@@ -195,15 +197,16 @@ export default function CompareToolbar({
               border: '1px solid var(--accent)',
               borderLeft: '1px solid var(--border-strong)',
               borderRadius: 0,
-              background: localOnFiles ? 'var(--accent)' : 'var(--surface-raised)',
-              color: localOnFiles ? '#fff' : 'var(--text-subtle)',
-              opacity: localOnFiles ? 1 : 0.4,
+              background: 'var(--surface-raised)',
+              color: 'var(--accent)',
+              opacity: localOnFiles ? 1 : 0.35,
               cursor: localOnFiles ? 'pointer' : 'default',
             }}
           >
             <ArrowIcon direction="right" />
           </button>
           <button
+            className="toolbar-btn"
             type="button"
             title={remoteOnFiles ? 'Navigate local to match remote path' : 'Remote pane is not inside a /Files/… folder'}
             onClick={onMatchLocalToRemote}
@@ -218,9 +221,9 @@ export default function CompareToolbar({
               border: '1px solid var(--accent)',
               borderLeft: '1px solid var(--border-strong)',
               borderRadius: '0 var(--r-sm) var(--r-sm) 0',
-              background: remoteOnFiles ? 'var(--accent)' : 'var(--surface-raised)',
-              color: remoteOnFiles ? '#fff' : 'var(--text-subtle)',
-              opacity: remoteOnFiles ? 1 : 0.4,
+              background: 'var(--surface-raised)',
+              color: 'var(--accent)',
+              opacity: remoteOnFiles ? 1 : 0.35,
               cursor: remoteOnFiles ? 'pointer' : 'default',
             }}
           >
@@ -242,6 +245,7 @@ export default function CompareToolbar({
                 : 'Compare is enabled — navigate both panes to a matching /Files/… folder to activate'
               : 'Enable compare — detects differences by comparing file sizes'
           }
+          className="toolbar-btn"
           onClick={() => { triggerCompareAnimation(); onModeChange(compareOn ? 'off' : 'auto') }}
           style={{
             ...segBase,
@@ -256,6 +260,7 @@ export default function CompareToolbar({
         <Expand show={showFilter} animate={compareAnimate}>
           <button
             type="button"
+            className="toolbar-btn"
             title={filterActive ? 'Show all files' : 'Show only selected status files'}
             onClick={() => onFilterChange(!filterActive)}
             style={{
@@ -286,6 +291,7 @@ export default function CompareToolbar({
             const color = PILL_COLOR[status]
             return (
               <button
+                className="toolbar-btn"
                 key={status}
                 type="button"
                 title={`${active ? 'Hide' : 'Show'} ${LABEL[status]} files`}
