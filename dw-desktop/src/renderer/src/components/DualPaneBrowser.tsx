@@ -589,6 +589,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
           path={localPath}
           label="Local"
           mirrorActive={stableMirrorActive}
+          mirrorAccent="var(--accent)"
           onNavigateUp={() => {
             void navigateLocalTo(localParentPath(localPath))
             if (mirrorNav && pathsMatch) void navigateRemoteTo(parentPath(remotePath))

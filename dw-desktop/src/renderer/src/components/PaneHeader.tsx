@@ -9,10 +9,11 @@ interface PaneHeaderProps {
   onRefresh: () => void
   onNavigateTo?: (path: string) => void
   mirrorActive?: boolean
+  mirrorAccent?: string
   actions?: React.ReactNode
 }
 
-function Breadcrumb({ path, onNavigateTo, mirrorActive }: { path: string; onNavigateTo: (path: string) => void; mirrorActive?: boolean }): React.JSX.Element {
+function Breadcrumb({ path, onNavigateTo, mirrorActive, mirrorAccent = 'var(--accent-cool)' }: { path: string; onNavigateTo: (path: string) => void; mirrorActive?: boolean; mirrorAccent?: string }): React.JSX.Element {
   const isWindows = path.includes('\\') || /^[A-Za-z]:/.test(path)
   const parts = path.replace(/[/\\]$/, '').split(/[\\/]/).filter(Boolean)
   const filesIdx = mirrorActive ? parts.findIndex((p) => p.toLowerCase() === 'files') : -1
@@ -82,10 +83,12 @@ function Breadcrumb({ path, onNavigateTo, mirrorActive }: { path: string; onNavi
         const isLast = i === parts.length - 1
         const isMirrored = filesIdx !== -1 && i >= filesIdx
         const segColor = isLast && isMirrored
-          ? 'color-mix(in srgb, var(--accent-cool) 35%, var(--text))'
+          ? `color-mix(in srgb, ${mirrorAccent} 35%, var(--text))`
           : isLast ? 'var(--text)'
-          : isMirrored ? 'var(--accent-cool)' : 'var(--text-subtle)'
-        const sepColor = isMirrored ? 'var(--accent-cool-dim)' : 'var(--text-subtle)'
+          : isMirrored ? `color-mix(in srgb, ${mirrorAccent} 60%, var(--text-subtle))` : 'var(--text-subtle)'
+        const sepColor = isMirrored
+          ? `color-mix(in srgb, ${mirrorAccent} 50%, transparent)`
+          : 'var(--text-subtle)'
         return (
           <span key={segmentPath(i)} style={{ display: 'flex', alignItems: 'center', flexShrink: i < parts.length - 1 ? 1 : 0, minWidth: 0 }}>
             <span style={{ color: sepColor, flexShrink: 0 }}>/</span>
@@ -140,6 +143,7 @@ export default function PaneHeader({
   onRefresh,
   onNavigateTo,
   mirrorActive,
+  mirrorAccent,
   actions
 }: PaneHeaderProps): React.JSX.Element {
   const [editing, setEditing] = useState(false)
@@ -251,7 +255,7 @@ export default function PaneHeader({
           }}
         />
       ) : onNavigateTo ? (
-        <Breadcrumb path={path} onNavigateTo={onNavigateTo} mirrorActive={mirrorActive} />
+        <Breadcrumb path={path} onNavigateTo={onNavigateTo} mirrorActive={mirrorActive} mirrorAccent={mirrorAccent} />
       ) : (
         <span
           title={path}
