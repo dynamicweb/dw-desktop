@@ -20,6 +20,24 @@ interface CompareToolbarProps {
   isLoading: boolean
 }
 
+function Expand({ show, children }: { show: boolean; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      maxWidth: show ? 600 : 0,
+      opacity: show ? 1 : 0,
+      overflow: 'hidden',
+      transition: show
+        ? 'max-width 140ms ease-out, opacity 120ms ease-out'
+        : 'max-width 80ms ease-in, opacity 60ms ease-in',
+      pointerEvents: show ? 'auto' : 'none',
+    }}>
+      {children}
+    </div>
+  )
+}
+
 const STATUSES: DiffStatus[] = ['different', 'remote-only', 'local-only', 'identical']
 
 const PILL_COLOR: Record<DiffStatus, string> = {
@@ -119,7 +137,7 @@ export default function CompareToolbar({
         borderBottom: '1px solid var(--border)',
         background: 'var(--surface)',
         flexShrink: 0,
-        minHeight: 28
+        height: 32
       }}
     >
       {/* Mirror button — segmented with path-match arrows when active but unsynced */}
@@ -144,56 +162,54 @@ export default function CompareToolbar({
         >
           ⇄ Mirror
         </button>
-        {showMirrorMatch && (
-          <>
-            <button
-              type="button"
-              title={localOnFiles ? 'Navigate remote to match local path' : 'Local pane is not inside a /Files/… folder'}
-              onClick={onMatchRemoteToLocal}
-              disabled={!localOnFiles}
-              style={{
-                ...segBase,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 26,
-                padding: 0,
-                border: '1px solid var(--accent)',
-                borderLeft: '1px solid var(--border-strong)',
-                borderRadius: 0,
-                background: localOnFiles ? 'var(--accent)' : 'var(--surface-raised)',
-                color: localOnFiles ? '#fff' : 'var(--text-subtle)',
-                opacity: localOnFiles ? 1 : 0.4,
-                cursor: localOnFiles ? 'pointer' : 'default',
-              }}
-            >
-              <ArrowIcon direction="right" />
-            </button>
-            <button
-              type="button"
-              title={remoteOnFiles ? 'Navigate local to match remote path' : 'Remote pane is not inside a /Files/… folder'}
-              onClick={onMatchLocalToRemote}
-              disabled={!remoteOnFiles}
-              style={{
-                ...segBase,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 26,
-                padding: 0,
-                border: '1px solid var(--accent)',
-                borderLeft: '1px solid var(--border-strong)',
-                borderRadius: '0 var(--r-sm) var(--r-sm) 0',
-                background: remoteOnFiles ? 'var(--accent)' : 'var(--surface-raised)',
-                color: remoteOnFiles ? '#fff' : 'var(--text-subtle)',
-                opacity: remoteOnFiles ? 1 : 0.4,
-                cursor: remoteOnFiles ? 'pointer' : 'default',
-              }}
-            >
-              <ArrowIcon direction="left" />
-            </button>
-          </>
-        )}
+        <Expand show={showMirrorMatch}>
+          <button
+            type="button"
+            title={localOnFiles ? 'Navigate remote to match local path' : 'Local pane is not inside a /Files/… folder'}
+            onClick={onMatchRemoteToLocal}
+            disabled={!localOnFiles}
+            style={{
+              ...segBase,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 26,
+              padding: 0,
+              border: '1px solid var(--accent)',
+              borderLeft: '1px solid var(--border-strong)',
+              borderRadius: 0,
+              background: localOnFiles ? 'var(--accent)' : 'var(--surface-raised)',
+              color: localOnFiles ? '#fff' : 'var(--text-subtle)',
+              opacity: localOnFiles ? 1 : 0.4,
+              cursor: localOnFiles ? 'pointer' : 'default',
+            }}
+          >
+            <ArrowIcon direction="right" />
+          </button>
+          <button
+            type="button"
+            title={remoteOnFiles ? 'Navigate local to match remote path' : 'Remote pane is not inside a /Files/… folder'}
+            onClick={onMatchLocalToRemote}
+            disabled={!remoteOnFiles}
+            style={{
+              ...segBase,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 26,
+              padding: 0,
+              border: '1px solid var(--accent)',
+              borderLeft: '1px solid var(--border-strong)',
+              borderRadius: '0 var(--r-sm) var(--r-sm) 0',
+              background: remoteOnFiles ? 'var(--accent)' : 'var(--surface-raised)',
+              color: remoteOnFiles ? '#fff' : 'var(--text-subtle)',
+              opacity: remoteOnFiles ? 1 : 0.4,
+              cursor: remoteOnFiles ? 'pointer' : 'default',
+            }}
+          >
+            <ArrowIcon direction="left" />
+          </button>
+        </Expand>
       </div>
 
       <span aria-hidden style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', flexShrink: 0 }} />
@@ -220,7 +236,7 @@ export default function CompareToolbar({
         >
           ⊟ Compare
         </button>
-        {showFilter && (
+        <Expand show={showFilter}>
           <button
             type="button"
             title={filterActive ? 'Show all files' : 'Show only selected status files'}
@@ -241,10 +257,10 @@ export default function CompareToolbar({
           >
             <EyeIcon open={!filterActive} />
           </button>
-        )}
+        </Expand>
       </div>
 
-      {hasDiff && (
+      <Expand show={hasDiff && !isLoading}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {STATUSES.map((status) => {
             const count = counts[status]
@@ -289,7 +305,7 @@ export default function CompareToolbar({
             )
           })}
         </div>
-      )}
+      </Expand>
     </div>
   )
 }
