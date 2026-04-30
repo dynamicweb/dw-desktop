@@ -26,6 +26,7 @@ Get the latest version from the [Releases page](https://github.com/dynamicweb/dw
 
 - Move files between your local machine and DW10 environments
 - Browse and manage remote files visually
+- Compare local and remote folder contents at a glance and filter to only files that differ
 - Work across multiple environments (dev, staging, production)
 - Handle large transfers with progress tracking and logs
 
@@ -34,6 +35,12 @@ Get the latest version from the [Releases page](https://github.com/dynamicweb/dw
 
 - **Dual-pane file browser**  
   Local files on one side, remote environment on the other
+
+- **Mirror navigation**  
+  Navigate both panes together when folder structures match; arrow buttons snap either pane to the other's path
+
+- **Compare mode**  
+  Colour-coded diff between local and remote folders — different, local-only, remote-only, identical — with per-status filters
 
 - **Drag & drop transfers**  
   Upload and download files with real-time progress
