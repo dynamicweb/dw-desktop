@@ -495,6 +495,12 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const localSelected = selected.pane === 'local' ? selected.paths : []
   const remoteSelected = selected.pane === 'remote' ? selected.paths : []
 
+  const isLoading = localLoading || remoteLoading
+  const mirrorActive = mirrorNav && pathsMatch
+  const stableMirrorActiveRef = useRef(mirrorActive)
+  if (!isLoading) stableMirrorActiveRef.current = mirrorActive
+  const stableMirrorActive = isLoading ? stableMirrorActiveRef.current : mirrorActive
+
   const localOnFiles = !!getDwRelativeTail(localPath)
   const remoteOnFiles = !!getDwRelativeTail(toDisplayRemotePath(remotePath)) && (
     !!getDwRelativeTail(localPath) || !!activeEnv?.localStartPath
@@ -582,6 +588,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
         <PaneHeader
           path={localPath}
           label="Local"
+          mirrorActive={stableMirrorActive}
           onNavigateUp={() => {
             void navigateLocalTo(localParentPath(localPath))
             if (mirrorNav && pathsMatch) void navigateRemoteTo(parentPath(remotePath))
@@ -805,6 +812,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
               path={toDisplayRemotePath(remotePath)}
               label={envLabel(activeEnv)}
               sublabel={activeEnv.host}
+              mirrorActive={stableMirrorActive}
               upDisabled={remotePath === '/'}
               onNavigateUp={() => {
                 void navigateRemoteTo(parentPath(remotePath))
