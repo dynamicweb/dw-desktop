@@ -45,37 +45,6 @@ handling.
 
 ---
 
-### Folder compare view
-
-**What:** A side-by-side diff view that highlights which files differ between the
-local and remote pane (by name, size, modified date). Color-code: only-on-left,
-only-on-right, both-but-different, identical.
-
-**Why:** This is the single most common question a partner asks during deployment:
-"is my remote actually up to date with my local build?" Today there is no answer
-without manually downloading and diffing.
-
-**Pros:** Pure client-side feature on already-listed entries. Acts as a direct
-precursor to folder sync — once you can compare, sync is the obvious follow-up.
-
-**Cons:** No content hashing in the API — comparison is limited to name,
-`sizeInBytes`, and `updatedAt` (all confirmed returned by `AssetsByDirectory`).
-This is sufficient for typical deployment validation but won't catch a file
-modified and then reverted to the exact same byte size.
-
-**Context:** The existing dual-pane layout is structurally perfect for this — the
-comparison is a styling overlay on existing FileList rows. All required metadata
-(`sizeInBytes`, `updatedAt`) is already fetched and stored in `FileEntry`.
-
-**Value:** Very High — directly answers the primary deployment question; transforms
-the app from "file browser" to "deployment tool".
-
-**Difficulty:** Low-Medium — all the data already exists in loaded `FileEntry`
-arrays; no new API calls needed. The work is purely visual (diff overlay on
-FileList rows) plus straightforward name+size+mtime comparison logic.
-
----
-
 ### Keyboard shortcuts
 
 **What:** Add shortcuts for common actions: upload (Cmd/Ctrl+U), download
