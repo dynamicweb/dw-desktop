@@ -52,19 +52,22 @@ function localParentPath(path: string): string {
   // Unix root has no parent.
   if (path === '/') return '/'
 
+  // Prefer backslash as sep if present; otherwise forward slash.
   const sep = path.includes('\\') ? '\\' : '/'
-  const parts = path.split(sep).filter(Boolean)
+  // Split on either separator so forward-slash Windows paths (D:/a/b) work too.
+  const parts = path.split(/[/\\]/).filter(Boolean)
   parts.pop()
 
   if (parts.length === 0) {
-    // Walked off a Unix path → root. Walked off a relative path → drives.
     return sep === '/' ? '/' : ''
   }
   // Drive letter alone needs a trailing separator to be listable.
   if (parts.length === 1 && /^[A-Za-z]:$/.test(parts[0])) {
     return parts[0] + sep
   }
-  return sep === '/' ? '/' + parts.join('/') : parts.join(sep)
+  // Detect Windows by drive letter — NOT by separator — so D:/a/b is handled correctly.
+  const isWindows = /^[A-Za-z]:/.test(path)
+  return isWindows ? parts.join(sep) : '/' + parts.join('/')
 }
 
 export default function DualPaneBrowser(): React.JSX.Element {
