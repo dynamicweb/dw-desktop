@@ -13,9 +13,22 @@ interface PaneHeaderProps {
   actions?: React.ReactNode
 }
 
-function Breadcrumb({ path, onNavigateTo, mirrorActive, mirrorAccent = 'var(--accent-cool)' }: { path: string; onNavigateTo: (path: string) => void; mirrorActive?: boolean; mirrorAccent?: string }): React.JSX.Element {
+function Breadcrumb({
+  path,
+  onNavigateTo,
+  mirrorActive,
+  mirrorAccent = 'var(--accent-cool)'
+}: {
+  path: string
+  onNavigateTo: (path: string) => void
+  mirrorActive?: boolean
+  mirrorAccent?: string
+}): React.JSX.Element {
   const isWindows = path.includes('\\') || /^[A-Za-z]:/.test(path)
-  const parts = path.replace(/[/\\]$/, '').split(/[\\/]/).filter(Boolean)
+  const parts = path
+    .replace(/[/\\]$/, '')
+    .split(/[\\/]/)
+    .filter(Boolean)
   const filesIdx = mirrorActive ? parts.findIndex((p) => p.toLowerCase() === 'files') : -1
 
   function segmentPath(i: number): string {
@@ -82,15 +95,27 @@ function Breadcrumb({ path, onNavigateTo, mirrorActive, mirrorAccent = 'var(--ac
       {parts.map((part, i) => {
         const isLast = i === parts.length - 1
         const isMirrored = filesIdx !== -1 && i >= filesIdx
-        const segColor = isLast && isMirrored
-          ? `color-mix(in srgb, ${mirrorAccent} 35%, var(--text))`
-          : isLast ? 'var(--text)'
-          : isMirrored ? `color-mix(in srgb, ${mirrorAccent} 60%, var(--text-subtle))` : 'var(--text-subtle)'
+        const segColor =
+          isLast && isMirrored
+            ? `color-mix(in srgb, ${mirrorAccent} 35%, var(--text))`
+            : isLast
+              ? 'var(--text)'
+              : isMirrored
+                ? `color-mix(in srgb, ${mirrorAccent} 60%, var(--text-subtle))`
+                : 'var(--text-subtle)'
         const sepColor = isMirrored
           ? `color-mix(in srgb, ${mirrorAccent} 50%, transparent)`
           : 'var(--text-subtle)'
         return (
-          <span key={segmentPath(i)} style={{ display: 'flex', alignItems: 'center', flexShrink: i < parts.length - 1 ? 1 : 0, minWidth: 0 }}>
+          <span
+            key={segmentPath(i)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              flexShrink: i < parts.length - 1 ? 1 : 0,
+              minWidth: 0
+            }}
+          >
             <span style={{ color: sepColor, flexShrink: 0 }}>/</span>
             <button
               type="button"
@@ -196,24 +221,33 @@ export default function PaneHeader({
       >
         <span
           style={{
+            display: 'inline-block',
             fontSize: 10,
             textTransform: 'uppercase',
             letterSpacing: '0.1em',
-            color: 'var(--text-subtle)'
+            color: 'var(--text-subtle)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: 120,
+            verticalAlign: 'baseline'
           }}
+          title={label}
         >
           {label}
         </span>
         {sublabel && (
           <span
             style={{
+              display: 'inline-block',
               fontSize: 10,
               fontFamily: 'var(--font-mono)',
               color: 'var(--text-subtle)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              maxWidth: 220
+              maxWidth: 140,
+              verticalAlign: 'baseline'
             }}
             title={sublabel}
           >
@@ -237,8 +271,14 @@ export default function PaneHeader({
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.preventDefault(); commitEdit() }
-            if (e.key === 'Escape') { e.preventDefault(); cancelEdit() }
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commitEdit()
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              cancelEdit()
+            }
           }}
           onBlur={cancelEdit}
           style={{
@@ -251,11 +291,16 @@ export default function PaneHeader({
             border: '1px solid var(--accent)',
             borderRadius: 'var(--r-sm)',
             padding: '1px 6px',
-            outline: 'none',
+            outline: 'none'
           }}
         />
       ) : onNavigateTo ? (
-        <Breadcrumb path={path} onNavigateTo={onNavigateTo} mirrorActive={mirrorActive} mirrorAccent={mirrorAccent} />
+        <Breadcrumb
+          path={path}
+          onNavigateTo={onNavigateTo}
+          mirrorActive={mirrorActive}
+          mirrorAccent={mirrorAccent}
+        />
       ) : (
         <span
           title={path}
@@ -295,7 +340,10 @@ export default function PaneHeader({
           type="button"
           className="icon-btn"
           disabled={upDisabled}
-          style={{ opacity: upDisabled ? 0.3 : undefined, cursor: upDisabled ? 'default' : undefined }}
+          style={{
+            opacity: upDisabled ? 0.3 : undefined,
+            cursor: upDisabled ? 'default' : undefined
+          }}
         >
           ↑
         </button>
