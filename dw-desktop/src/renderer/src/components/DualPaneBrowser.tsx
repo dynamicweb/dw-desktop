@@ -427,6 +427,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
           onToggleStatus={toggleHighlightedStatus}
           mirrorNav={mirrorNav}
           onMirrorNavChange={setMirrorNav}
+          pathsMatch={pathsMatch}
         />
       )}
     <div ref={containerRef} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>

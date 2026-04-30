@@ -9,6 +9,7 @@ interface CompareToolbarProps {
   onToggleStatus: (status: DiffStatus) => void
   mirrorNav: boolean
   onMirrorNavChange: (v: boolean) => void
+  pathsMatch: boolean
 }
 
 const STATUSES: DiffStatus[] = ['different', 'remote-only', 'local-only', 'identical']
@@ -27,6 +28,9 @@ const LABEL: Record<DiffStatus, string> = {
   identical: 'equal'
 }
 
+const STRIPE = (color: string): string =>
+  `repeating-linear-gradient(45deg, ${color}, ${color} 3px, color-mix(in srgb, ${color} 35%, transparent) 3px, color-mix(in srgb, ${color} 35%, transparent) 7px)`
+
 export default function CompareToolbar({
   mode,
   onModeChange,
@@ -34,7 +38,8 @@ export default function CompareToolbar({
   highlightedStatuses,
   onToggleStatus,
   mirrorNav,
-  onMirrorNavChange
+  onMirrorNavChange,
+  pathsMatch
 }: CompareToolbarProps): React.JSX.Element {
   const counts = countByStatus(diffMap)
   const hasDiff = diffMap.size > 0
@@ -55,7 +60,13 @@ export default function CompareToolbar({
     >
       <button
         type="button"
-        title={compareOn ? 'Disable compare' : 'Enable compare — detects differences by comparing file sizes'}
+        title={
+          compareOn
+            ? pathsMatch
+              ? 'Disable compare'
+              : 'Compare is enabled — navigate both panes to a matching /Files/… folder to activate'
+            : 'Enable compare — detects differences by comparing file sizes'
+        }
         onClick={() => onModeChange(compareOn ? 'off' : 'auto')}
         style={{
           height: 22,
@@ -67,7 +78,11 @@ export default function CompareToolbar({
           borderRadius: 'var(--r-sm)',
           border: '1px solid var(--border-strong)',
           cursor: 'pointer',
-          background: compareOn ? 'var(--accent)' : 'var(--surface-raised)',
+          background: compareOn
+            ? pathsMatch
+              ? 'var(--accent)'
+              : STRIPE('var(--accent)')
+            : 'var(--surface-raised)',
           color: compareOn ? '#fff' : 'var(--text-subtle)',
           transition: 'background 80ms ease-out, color 80ms ease-out',
           userSelect: 'none'
@@ -126,7 +141,13 @@ export default function CompareToolbar({
       <span aria-hidden style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', flexShrink: 0 }} />
       <button
         type="button"
-        title={mirrorNav ? 'Disable mirror navigation' : 'Enable mirror navigation — navigates both panes together when folder structures match'}
+        title={
+          mirrorNav
+            ? pathsMatch
+              ? 'Disable mirror navigation'
+              : 'Mirror is enabled — navigate both panes to a matching /Files/… folder to activate'
+            : 'Enable mirror navigation — navigates both panes together when folder structures match'
+        }
         onClick={() => onMirrorNavChange(!mirrorNav)}
         style={{
           height: 22,
@@ -138,7 +159,11 @@ export default function CompareToolbar({
           borderRadius: 'var(--r-sm)',
           border: '1px solid var(--border-strong)',
           cursor: 'pointer',
-          background: mirrorNav ? 'var(--accent)' : 'var(--surface-raised)',
+          background: mirrorNav
+            ? pathsMatch
+              ? 'var(--accent)'
+              : STRIPE('var(--accent)')
+            : 'var(--surface-raised)',
           color: mirrorNav ? '#fff' : 'var(--text-subtle)',
           transition: 'background 80ms ease-out, color 80ms ease-out',
           userSelect: 'none'
