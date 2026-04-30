@@ -5,7 +5,7 @@ import { useEnvStore } from '../stores/envStore'
 import { useFileStore } from '../stores/fileStore'
 import { useToastStore } from '../stores/toastStore'
 import { useTransferStore } from '../stores/transferStore'
-import { compareEntries, diffKey, getDwRelativeTail } from '../utils/compareEntries'
+import { compareEntries, countByStatus, diffKey, getDwRelativeTail } from '../utils/compareEntries'
 import AddEnvModal from './AddEnvModal'
 import CompareToolbar from './CompareToolbar'
 import ContextMenu from './ContextMenu'
@@ -487,8 +487,9 @@ export default function DualPaneBrowser(): React.JSX.Element {
     !!getDwRelativeTail(localPath) || !!activeEnv?.localStartPath
   )
 
-  const localFilterStatuses = highlightedStatuses.filter((s) => s !== 'remote-only')
-  const remoteFilterStatuses = highlightedStatuses.filter((s) => s !== 'local-only')
+  const diffCounts = countByStatus(diffMap)
+  const localFilterStatuses = highlightedStatuses.filter((s) => s !== 'remote-only' && diffCounts[s] > 0)
+  const remoteFilterStatuses = highlightedStatuses.filter((s) => s !== 'local-only' && diffCounts[s] > 0)
   const visibleLocalEntries = filterActive && diffMap.size > 0 && localFilterStatuses.length > 0
     ? localEntries.filter((e) => { const s = diffMap.get(diffKey(e)); return s !== undefined && localFilterStatuses.includes(s) })
     : localEntries
@@ -554,6 +555,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
         <PaneHeader
           path={localPath}
           label="Local"
+          upDisabled={!localPath}
           onNavigateUp={() => {
             void navigateLocalTo(localParentPath(localPath))
             if (mirrorNav && pathsMatch) void navigateRemoteTo(parentPath(remotePath))
@@ -777,6 +779,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
               path={toDisplayRemotePath(remotePath)}
               label={envLabel(activeEnv)}
               sublabel={activeEnv.host}
+              upDisabled={remotePath === '/'}
               onNavigateUp={() => {
                 void navigateRemoteTo(parentPath(remotePath))
                 if (mirrorNav && pathsMatch) void navigateLocalTo(localParentPath(localPath))
