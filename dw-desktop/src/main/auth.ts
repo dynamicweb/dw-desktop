@@ -69,16 +69,24 @@ export async function resolveAuthHeader(env: StoredEnv): Promise<string> {
     const token = String(payload['token'] ?? payload['Token'] ?? payload['access_token'] ?? '')
     if (!token) throw new Error(`OAuth response did not contain a token: ${bodyText.slice(0, 200)}`)
 
-    const expiresRaw = payload['expires'] ?? payload['Expires'] ?? payload['expires_in']
-    let expiresAt: number
-    if (typeof expiresRaw === 'string') {
-      const parsed = Date.parse(expiresRaw)
-      expiresAt = Number.isFinite(parsed) ? parsed : Date.now() + 5 * 60 * 1000
-    } else if (typeof expiresRaw === 'number') {
-      expiresAt = Date.now() + expiresRaw * 1000
-    } else {
-      expiresAt = Date.now() + 5 * 60 * 1000
+    // Try each candidate field in priority order; fall through if a value is
+    // present but unparseable so a valid `expires_in` isn't shadowed by a
+    // malformed `expires`.
+    function parseExpiry(value: unknown): number | null {
+      if (typeof value === 'string') {
+        const parsed = Date.parse(value)
+        return Number.isFinite(parsed) ? parsed : null
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return Date.now() + value * 1000
+      }
+      return null
     }
+    const expiresAt =
+      parseExpiry(payload['expires']) ??
+      parseExpiry(payload['Expires']) ??
+      parseExpiry(payload['expires_in']) ??
+      Date.now() + 5 * 60 * 1000
 
     oauthCache.set(env.name, { token, expiresAt })
     return `Bearer ${token}`
