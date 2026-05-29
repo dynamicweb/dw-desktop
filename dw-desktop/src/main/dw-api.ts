@@ -120,33 +120,66 @@ export async function uploadFiles(
     let transferred = 0
 
     const uploadUrl = `${baseUrl(env)}/Admin/Api/Upload?createMissingDirectories=true&createEmptyFiles=false`
-    const remoteApiPath = normalizeRemotePath(remotePath).replace(/^\//, '')
+    const remoteApiBase = normalizeRemotePath(remotePath).replace(/^\//, '')
 
-    for (let i = 0; i < allFiles.length; i += BATCH_SIZE) {
-      const batch = allFiles.slice(i, i + BATCH_SIZE)
-      const formData = new FormData()
-      formData.append('path', remoteApiPath)
-      formData.append('skipExistingFiles', String(!overwrite))
-      formData.append('allowOverwrite', String(overwrite))
+    // The DW Upload endpoint takes a single `path` per request and ignores subdirectory
+    // components in the multipart filename. To preserve a local folder tree we must group
+    // files by their subdirectory relative to the target and POST one multipart per group,
+    // sending only basenames as filenames.
+    const groups = new Map<string, UploadableFile[]>()
+    for (const file of allFiles) {
+      const rel = file.remoteRelativePath.replace(/\\/g, '/')
+      const slash = rel.lastIndexOf('/')
+      const subDir = slash === -1 ? '' : rel.substring(0, slash)
+      const groupKey = subDir
+      const bucket = groups.get(groupKey) ?? []
+      bucket.push(file)
+      groups.set(groupKey, bucket)
+    }
 
-      const batchFiles = batch.map((f) => f.remoteRelativePath)
-      const dbEntry = debugRequest('POST', uploadUrl, JSON.stringify({ remotePath: remoteApiPath, overwrite, files: batchFiles }, null, 2))
+    for (const [subDir, groupFiles] of groups) {
+      const groupRemotePath = subDir ? `${remoteApiBase}/${subDir}` : remoteApiBase
 
-      for (const file of batch) {
-        const chunks: Buffer[] = []
-        for await (const chunk of createReadStream(file.localPath, { highWaterMark: 256 * 1024 })) {
-          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array)
-          chunks.push(buf)
-          transferred += buf.byteLength
-          onProgress(transferred, totalBytes, file.remoteRelativePath)
+      for (let i = 0; i < groupFiles.length; i += BATCH_SIZE) {
+        const batch = groupFiles.slice(i, i + BATCH_SIZE)
+        const formData = new FormData()
+        formData.append('path', groupRemotePath)
+        formData.append('skipExistingFiles', String(!overwrite))
+        formData.append('allowOverwrite', String(overwrite))
+
+        const batchFiles = batch.map((f) => basename(f.remoteRelativePath))
+        const dbEntry = debugRequest(
+          'POST',
+          uploadUrl,
+          JSON.stringify(
+            { path: groupRemotePath, skipExistingFiles: !overwrite, allowOverwrite: overwrite, files: batchFiles },
+            null,
+            2
+          )
+        )
+
+        for (const file of batch) {
+          const chunks: Buffer[] = []
+          for await (const chunk of createReadStream(file.localPath, { highWaterMark: 256 * 1024 })) {
+            const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array)
+            chunks.push(buf)
+            transferred += buf.byteLength
+            onProgress(transferred, totalBytes, file.remoteRelativePath)
+          }
+          formData.append('files', new Blob([Buffer.concat(chunks)]), basename(file.remoteRelativePath))
         }
-        formData.append('files', new Blob([Buffer.concat(chunks)]), file.remoteRelativePath)
-      }
 
-      const response = await fetch(uploadUrl, { method: 'POST', headers: { Authorization: authHeader }, body: formData })
-      const bodyText = await response.text()
-      debugResponse(dbEntry, response.status, (() => { try { return JSON.stringify(JSON.parse(bodyText), null, 2).slice(0, 2000) } catch { return bodyText.slice(0, 500) } })())
-      if (!response.ok) return { ok: false, error: `Upload failed with status ${response.status}: ${bodyText.slice(0, 200)}` }
+        const response = await fetch(uploadUrl, { method: 'POST', headers: { Authorization: authHeader }, body: formData })
+        const bodyText = await response.text()
+        debugResponse(
+          dbEntry,
+          response.status,
+          (() => {
+            try { return JSON.stringify(JSON.parse(bodyText), null, 2).slice(0, 2000) } catch { return bodyText.slice(0, 500) }
+          })()
+        )
+        if (!response.ok) return { ok: false, error: `Upload failed with status ${response.status}: ${bodyText.slice(0, 200)}` }
+      }
     }
 
     return { ok: true }
@@ -173,32 +206,88 @@ export async function downloadFile(env: StoredEnv, remotePath: string, localPath
     }
 
     const url = `${baseUrl(env)}/Admin/Api/${endpoint}`
-    const dbEntry = debugRequest('POST', url, JSON.stringify(body))
+    const dbEntry = debugRequest('POST', url, JSON.stringify(body, null, 2))
     const response = await fetch(url, {
       method: 'POST',
       headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     })
-    const errText = response.ok ? undefined : await response.text()
-    debugResponse(dbEntry, response.status, errText)
+
     if (!response.ok) {
-      return { ok: false, error: `Transfer failed with status ${response.status}: ${(errText ?? '').slice(0, 200)}` }
+      const errText = await response.text()
+      debugResponse(dbEntry, response.status, errText)
+      return { ok: false, error: `Transfer failed with status ${response.status}: ${errText.slice(0, 200)}` }
     }
 
     const buffer = Buffer.from(await response.arrayBuffer())
     const contentType = response.headers.get('content-type') ?? ''
+    const contentLengthHeader = response.headers.get('content-length') ?? '(none)'
+    const isZip = contentType.includes('zip') || (buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b)
 
     await mkdir(localPath, { recursive: true })
 
-    // Single file: server returns raw bytes (application/octet-stream), not a ZIP
-    if (!contentType.includes('zip') && (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4b)) {
+    if (!isZip) {
       const fileName = isFile ? basename(remotePath) : basename(remotePath) + '.bin'
-      await writeFile(join(localPath, fileName), buffer)
+      const outPath = join(localPath, fileName)
+      await writeFile(outPath, buffer)
+      debugResponse(
+        dbEntry,
+        response.status,
+        [
+          `content-type: ${contentType}`,
+          `content-length header: ${contentLengthHeader}`,
+          `bytes received: ${buffer.length}`,
+          `format: raw (not ZIP)`,
+          `wrote: ${outPath}`
+        ].join('\n')
+      )
       return { ok: true }
     }
 
     const archive = new AdmZip(buffer)
-    archive.extractAllTo(localPath, true)
+    const zipEntries = archive.getEntries()
+    const fileCount = zipEntries.filter((e) => !e.isDirectory).length
+    const dirCount = zipEntries.filter((e) => e.isDirectory).length
+    const totalUncompressed = zipEntries.reduce((sum, e) => sum + (e.header?.size ?? 0), 0)
+    const sampleEntries = zipEntries.slice(0, 20).map((e) => `  ${e.isDirectory ? '[d]' : '[f]'} ${e.entryName} (${e.header?.size ?? 0} bytes)`)
+    const truncatedNote = zipEntries.length > 20 ? `  ... and ${zipEntries.length - 20} more` : ''
+
+    // For directory downloads, ensure the chosen folder name becomes the wrapping dir locally.
+    // If the server's ZIP already prefixes every entry with that folder name, extract as-is.
+    // Otherwise, extract into a subfolder named after the remote folder so the contents don't
+    // spill into the destination root.
+    let extractTarget = localPath
+    if (!isFile) {
+      const folderName = basename(remotePath.replace(/[/\\]+$/, '')) || 'download'
+      const topSegments = new Set(
+        zipEntries
+          .map((e) => e.entryName.replace(/\\/g, '/').split('/')[0])
+          .filter((s) => s.length > 0)
+      )
+      const alreadyWrapped = topSegments.size === 1 && topSegments.has(folderName)
+      if (!alreadyWrapped) {
+        extractTarget = join(localPath, folderName)
+        await mkdir(extractTarget, { recursive: true })
+      }
+    }
+
+    archive.extractAllTo(extractTarget, true)
+
+    debugResponse(
+      dbEntry,
+      response.status,
+      [
+        `content-type: ${contentType}`,
+        `content-length header: ${contentLengthHeader}`,
+        `bytes received (zip): ${buffer.length}`,
+        `zip entries: ${zipEntries.length} (${fileCount} files, ${dirCount} dirs)`,
+        `total uncompressed bytes: ${totalUncompressed}`,
+        `extracted to: ${extractTarget}`,
+        'entries:',
+        ...sampleEntries,
+        truncatedNote
+      ].filter(Boolean).join('\n')
+    )
     return { ok: true }
   } catch (err) {
     return { ok: false, error: (err as Error).message }
