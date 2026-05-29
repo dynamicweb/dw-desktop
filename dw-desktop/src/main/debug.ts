@@ -31,6 +31,9 @@ export function debugRequest(method: string, url: string, requestBody?: string):
 export function debugResponse(entry: DebugEntry, status: number, responseBody?: string): void {
   entry.status = status
   entry.responseBody = responseBody
+  // If Clear ran between request and response, this entry is no longer in the
+  // buffer — don't broadcast it, or the renderer would append it as a new row.
+  if (!entries.includes(entry)) return
   broadcast(entry)
 }
 

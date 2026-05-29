@@ -9,6 +9,20 @@ interface OAuthCacheEntry {
 
 const oauthCache = new Map<string, OAuthCacheEntry>()
 
+// Replace token-bearing fields in a JSON body with a redacted marker so the
+// Debug panel never surfaces a live access token.
+function redactTokenBody(bodyText: string): string {
+  try {
+    const parsed = JSON.parse(bodyText) as Record<string, unknown>
+    for (const key of ['token', 'Token', 'access_token']) {
+      if (parsed[key] !== undefined) parsed[key] = '***redacted***'
+    }
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    return bodyText
+  }
+}
+
 export async function resolveAuthHeader(env: StoredEnv): Promise<string> {
   if (env.authType === 'apiKey' || env.authType === 'password') {
     const key = await getApiKey(env.name)
@@ -41,7 +55,8 @@ export async function resolveAuthHeader(env: StoredEnv): Promise<string> {
       body: JSON.stringify(body)
     })
     const bodyText = await response.text()
-    debugResponse(dbEntry, response.status, bodyText.slice(0, 1000))
+    const debugBody = response.ok ? redactTokenBody(bodyText) : bodyText
+    debugResponse(dbEntry, response.status, debugBody.slice(0, 1000))
 
     if (!response.ok) {
       throw new Error(`OAuth token request failed (${response.status}): ${bodyText.slice(0, 300)}`)
@@ -113,7 +128,8 @@ export async function testConnection(
         body: JSON.stringify(body)
       })
       const bodyText = await tokenResponse.text().catch(() => '')
-      debugResponse(dbEntry, tokenResponse.status, bodyText.slice(0, 1000))
+      const debugBody = tokenResponse.ok ? redactTokenBody(bodyText) : bodyText
+      debugResponse(dbEntry, tokenResponse.status, debugBody.slice(0, 1000))
 
       if (!tokenResponse.ok) {
         return {

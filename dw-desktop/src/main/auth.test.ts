@@ -70,7 +70,8 @@ describe('resolveAuthHeader', () => {
 
     fetchMock.mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ token: 'oauth-token-123', expires: 3600 })
+      status: 200,
+      text: () => Promise.resolve(JSON.stringify({ token: 'oauth-token-123', expires: 3600 }))
     })
 
     const header1 = await resolveAuthHeader(tokenEnv)
@@ -95,13 +96,15 @@ describe('resolveAuthHeader', () => {
     // First fetch: token expires in 30s — within the 60s refresh window
     fetchMock.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ token: 'expiring-soon', expires: 30 })
+      status: 200,
+      text: () => Promise.resolve(JSON.stringify({ token: 'expiring-soon', expires: 30 }))
     })
 
     // Second fetch: fresh token
     fetchMock.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ token: 'fresh-token', expires: 3600 })
+      status: 200,
+      text: () => Promise.resolve(JSON.stringify({ token: 'fresh-token', expires: 3600 }))
     })
 
     const header1 = await resolveAuthHeader(tokenEnv)

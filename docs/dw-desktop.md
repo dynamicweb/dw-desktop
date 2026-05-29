@@ -103,7 +103,7 @@ A typical use case is cloning a live environment to a staging environment for te
 7. After the restore, regenerate the staging API key or OAuth credentials — the restored database will contain the live credentials, which are different
 
 > [!WARNING]
-> Uploading large folder trees is done in batches. The app processes up to 300 files per batch with a 100 MB per-batch cap. Very large `Files` folders will take multiple batches and several minutes to complete.
+> Uploading large folder trees is done in batches of up to 300 files per request. Very large `Files` folders will take multiple batches and several minutes to complete.
 
 ## Transfer history
 

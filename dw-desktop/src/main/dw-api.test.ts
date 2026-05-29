@@ -16,6 +16,9 @@ vi.mock('adm-zip', () => ({
   default: class MockAdmZip {
     constructor(buffer: Buffer) { admZipConstructorMock(buffer) }
     extractAllTo(path: string, overwrite: boolean): void { extractAllToMock(path, overwrite) }
+    getEntries(): Array<{ entryName: string; isDirectory: boolean; header: { size: number } }> {
+      return []
+    }
   }
 }))
 
@@ -73,17 +76,25 @@ describe('dw-api', () => {
     expect(result.error).toContain('401')
   })
 
-  it('downloadFile extracts zip archive to localPath', async () => {
+  it('downloadFile extracts zip archive into a subfolder named after the remote folder', async () => {
+    // ZIP magic bytes 'PK\x03\x04' so the code path treats it as a ZIP archive.
+    const zipBytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04])
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
-      arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer
-    } as Response)
+      status: 200,
+      headers: { get: (h: string) => (h === 'content-type' ? 'application/zip' : null) },
+      arrayBuffer: async () => zipBytes.buffer
+    } as unknown as Response)
 
     const result = await downloadFile(env, '/Files', '/tmp/downloads')
 
     expect(result).toEqual({ ok: true })
     expect(mkdirMock).toHaveBeenCalledWith('/tmp/downloads', { recursive: true })
     expect(admZipConstructorMock).toHaveBeenCalledOnce()
-    expect(extractAllToMock).toHaveBeenCalledWith('/tmp/downloads', true)
+    // Directory downloads wrap the contents in a subfolder named after the remote
+    // folder (path basename) so they don't spill into the destination root.
+    const wrappedPath = expect.stringMatching(/[\\/]tmp[\\/]downloads[\\/]Files$/)
+    expect(mkdirMock).toHaveBeenCalledWith(wrappedPath, { recursive: true })
+    expect(extractAllToMock).toHaveBeenCalledWith(wrappedPath, true)
   })
 })
