@@ -1,4 +1,5 @@
 import { getApiKey, getOAuthCredentials } from './credentials'
+import { debugRequest, debugResponse } from './debug'
 import type { ConnectionStatus, StoredEnv } from '../shared/types'
 
 interface OAuthCacheEntry {
@@ -7,6 +8,20 @@ interface OAuthCacheEntry {
 }
 
 const oauthCache = new Map<string, OAuthCacheEntry>()
+
+// Replace token-bearing fields in a JSON body with a redacted marker so the
+// Debug panel never surfaces a live access token.
+function redactTokenBody(bodyText: string): string {
+  try {
+    const parsed = JSON.parse(bodyText) as Record<string, unknown>
+    for (const key of ['token', 'Token', 'access_token']) {
+      if (parsed[key] !== undefined) parsed[key] = '***redacted***'
+    }
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    return bodyText
+  }
+}
 
 export async function resolveAuthHeader(env: StoredEnv): Promise<string> {
   if (env.authType === 'apiKey' || env.authType === 'password') {
@@ -24,27 +39,56 @@ export async function resolveAuthHeader(env: StoredEnv): Promise<string> {
     const creds = await getOAuthCredentials(env.name)
     if (!creds) throw new Error(`No OAuth credentials found for environment "${env.name}"`)
 
-    const response = await fetch(`${env.protocol}://${env.host}/Admin/OAuth/token`, {
+    const clientId = creds.clientId.trim()
+    const clientSecret = creds.clientSecret.trim()
+    const tokenUrl = `${env.protocol}://${env.host}/Admin/OAuth/token`
+    const body = { grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }
+
+    const dbEntry = debugRequest(
+      'POST',
+      tokenUrl,
+      JSON.stringify({ ...body, client_secret: '***redacted***' }, null, 2)
+    )
+    const response = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'client_credentials',
-        client_id: creds.clientId,
-        client_secret: creds.clientSecret
-      })
+      body: JSON.stringify(body)
     })
+    const bodyText = await response.text()
+    const debugBody = response.ok ? redactTokenBody(bodyText) : bodyText
+    debugResponse(dbEntry, response.status, debugBody.slice(0, 1000))
 
     if (!response.ok) {
-      throw new Error(`OAuth token request failed with status ${response.status}`)
+      throw new Error(`OAuth token request failed (${response.status}): ${bodyText.slice(0, 300)}`)
     }
 
-    const payload = (await response.json()) as Record<string, unknown>
-    const token = String(payload['token'] ?? payload['Token'] ?? '')
-    const expiresIn = Number(payload['expires'] ?? payload['Expires'] ?? 3600)
+    let payload: Record<string, unknown>
+    try { payload = JSON.parse(bodyText) as Record<string, unknown> } catch {
+      throw new Error(`OAuth response was not JSON: ${bodyText.slice(0, 200)}`)
+    }
+    const token = String(payload['token'] ?? payload['Token'] ?? payload['access_token'] ?? '')
+    if (!token) throw new Error(`OAuth response did not contain a token: ${bodyText.slice(0, 200)}`)
 
-    if (!token) throw new Error('OAuth response did not contain a token')
+    // Try each candidate field in priority order; fall through if a value is
+    // present but unparseable so a valid `expires_in` isn't shadowed by a
+    // malformed `expires`.
+    function parseExpiry(value: unknown): number | null {
+      if (typeof value === 'string') {
+        const parsed = Date.parse(value)
+        return Number.isFinite(parsed) ? parsed : null
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return Date.now() + value * 1000
+      }
+      return null
+    }
+    const expiresAt =
+      parseExpiry(payload['expires']) ??
+      parseExpiry(payload['Expires']) ??
+      parseExpiry(payload['expires_in']) ??
+      Date.now() + 5 * 60 * 1000
 
-    oauthCache.set(env.name, { token, expiresAt: Date.now() + expiresIn * 1000 })
+    oauthCache.set(env.name, { token, expiresAt })
     return `Bearer ${token}`
   }
 
@@ -76,26 +120,37 @@ export async function testConnection(
     }
 
     if (credentials.authType === 'oauth') {
-      // A successful token fetch is proof of connection — no second request needed
-      const tokenResponse = await fetch(`${base}/Admin/OAuth/token`, {
+      const clientId = credentials.clientId.trim()
+      const clientSecret = credentials.clientSecret.trim()
+      const tokenUrl = `${base}/Admin/OAuth/token`
+      const body = { grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }
+
+      const dbEntry = debugRequest(
+        'POST',
+        tokenUrl,
+        JSON.stringify({ ...body, client_secret: '***redacted***' }, null, 2)
+      )
+      const tokenResponse = await fetch(tokenUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          grant_type: 'client_credentials',
-          client_id: credentials.clientId,
-          client_secret: credentials.clientSecret
-        })
+        body: JSON.stringify(body)
       })
+      const bodyText = await tokenResponse.text().catch(() => '')
+      const debugBody = tokenResponse.ok ? redactTokenBody(bodyText) : bodyText
+      debugResponse(dbEntry, tokenResponse.status, debugBody.slice(0, 1000))
+
       if (!tokenResponse.ok) {
-        const body = await tokenResponse.text().catch(() => '')
         return {
           connected: false,
-          error: `OAuth token request failed (${tokenResponse.status})${body ? ': ' + body.slice(0, 200) : ''}`
+          error: `OAuth token request failed (${tokenResponse.status})${bodyText ? ': ' + bodyText.slice(0, 300) : ''}`
         }
       }
-      const tokenPayload = (await tokenResponse.json()) as Record<string, unknown>
-      const token = String(tokenPayload['token'] ?? tokenPayload['Token'] ?? '')
-      if (!token) return { connected: false, error: 'OAuth response did not contain a token' }
+      let tokenPayload: Record<string, unknown>
+      try { tokenPayload = JSON.parse(bodyText) as Record<string, unknown> } catch {
+        return { connected: false, error: `OAuth response was not JSON: ${bodyText.slice(0, 200)}` }
+      }
+      const token = String(tokenPayload['token'] ?? tokenPayload['Token'] ?? tokenPayload['access_token'] ?? '')
+      if (!token) return { connected: false, error: `OAuth response did not contain a token: ${bodyText.slice(0, 200)}` }
       return { connected: true }
     }
 
