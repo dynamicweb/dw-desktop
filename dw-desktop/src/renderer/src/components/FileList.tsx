@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { FileEntry } from '../../../shared/types'
+import type { DiffStatus, FileEntry } from '../../../shared/types'
+import { diffKey } from '../utils/compareEntries'
 
 interface FileListProps {
   entries: FileEntry[]
@@ -12,6 +13,23 @@ interface FileListProps {
   onDropOnPane?: (paths: string[]) => void
   dropTarget?: boolean
   pane?: 'local' | 'remote'
+  diffMap?: Map<string, DiffStatus>
+  highlightedStatuses?: DiffStatus[]
+  syncCandidates?: Set<string>
+}
+
+const DIFF_BORDER: Record<DiffStatus, string> = {
+  'local-only': 'var(--warning)',
+  'remote-only': 'var(--accent-cool)',
+  different: 'var(--danger)',
+  identical: 'var(--success)'
+}
+
+const DIFF_BG: Record<DiffStatus, string> = {
+  'local-only': 'color-mix(in srgb, var(--warning) 10%, transparent)',
+  'remote-only': 'color-mix(in srgb, var(--accent-cool) 10%, transparent)',
+  different: 'color-mix(in srgb, var(--danger) 10%, transparent)',
+  identical: 'color-mix(in srgb, var(--success) 6%, transparent)'
 }
 
 function FolderIcon({ color }: { color: string }): React.JSX.Element {
@@ -86,7 +104,10 @@ export default function FileList({
   onDropIntoDir,
   onDropOnPane,
   dropTarget,
-  pane
+  pane,
+  diffMap,
+  highlightedStatuses,
+  syncCandidates
 }: FileListProps): React.JSX.Element {
   const isRemote = pane === 'remote'
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
@@ -189,6 +210,12 @@ export default function FileList({
         const isSelected = selected.includes(entry.path)
         const isDragOver = dropTarget && dragOverPath === entry.path && entry.type === 'directory'
         const isDragging = draggingPaths.includes(entry.path)
+        const status = diffMap?.get(diffKey(entry))
+        const highlight =
+          status && (highlightedStatuses?.includes(status) ?? false) ? status : undefined
+        const isSync = entry.type === 'directory' && !!syncCandidates?.has(diffKey(entry))
+        const diffBorder = highlight ? DIFF_BORDER[highlight] : 'transparent'
+        const diffBg = highlight ? DIFF_BG[highlight] : undefined
         return (
           <div
             key={entry.path}
@@ -233,12 +260,13 @@ export default function FileList({
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              padding: '5px 12px',
+              padding: '5px 12px 5px 9px',
+              borderLeft: `3px solid ${diffBorder}`,
               cursor: 'pointer',
               userSelect: 'none',
               fontSize: 13,
               transition: 'background 80ms ease-out',
-              background: isSelected ? 'var(--selection)' : 'transparent',
+              background: isSelected ? 'var(--selection)' : (diffBg ?? 'transparent'),
               color: 'var(--text)',
               outline: isDragOver ? '1px dashed var(--accent-cool)' : 'none',
               outlineOffset: -1,
@@ -248,7 +276,7 @@ export default function FileList({
               if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--control-hover)'
             }}
             onMouseLeave={(e) => {
-              if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent'
+              if (!isSelected) (e.currentTarget as HTMLElement).style.background = diffBg ?? 'transparent'
             }}
           >
             <FileIcon entry={entry} isRemote={isRemote} />
@@ -272,7 +300,9 @@ export default function FileList({
                 flexShrink: 0
               }}
             >
-              {entry.type === 'directory' ? '' : formatSize(entry.size)}
+              {isSync ? (
+              <span style={{ color: 'var(--text-subtle)', fontSize: 12 }}>⇄</span>
+            ) : entry.type === 'directory' ? '' : formatSize(entry.size)}
             </span>
           </div>
         )

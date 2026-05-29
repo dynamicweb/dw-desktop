@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useEnvStore } from '../stores/envStore'
 import type { StoredEnv } from '../../../shared/types'
 
@@ -97,10 +97,17 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
     }
   }
 
+  const pickingRef = useRef(false)
   async function pickLocalStartPath(): Promise<void> {
-    const result = await window.dw.fs.openDialog(['openDirectory'])
-    if (result.ok && result.data && result.data.paths.length > 0) {
-      setStep1((s) => ({ ...s, localStartPath: result.data!.paths[0] }))
+    if (pickingRef.current) return
+    pickingRef.current = true
+    try {
+      const result = await window.dw.fs.openDialog(['openDirectory'])
+      if (result.ok && result.data && result.data.paths.length > 0) {
+        setStep1((s) => ({ ...s, localStartPath: result.data!.paths[0] }))
+      }
+    } finally {
+      pickingRef.current = false
     }
   }
 

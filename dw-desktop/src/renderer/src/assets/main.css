@@ -144,6 +144,23 @@ input:not(:focus-visible) { outline: none; }
   -webkit-app-region: no-drag;
 }
 
+/* Top navigation tab button (Files, Transfer log, Debug, …) */
+.nav-btn:hover {
+  background: var(--control-hover) !important;
+  color: var(--text) !important;
+}
+.nav-btn:active {
+  background: var(--surface-raised) !important;
+}
+
+/* Segmented toolbar button (Compare, Mirror, Theme, pills) */
+.toolbar-btn:hover:not([disabled]) {
+  filter: brightness(1.12);
+}
+.toolbar-btn:active:not([disabled]) {
+  filter: brightness(0.88);
+}
+
 /* Small icon button (pane headers, toolbars) */
 .icon-btn {
   display: inline-flex;

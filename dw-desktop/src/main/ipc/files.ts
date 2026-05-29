@@ -19,13 +19,21 @@ async function listLocalEntries(dirPath: string): Promise<FileEntry[]> {
   const entries = await Promise.all(
     children.map(async (child) => {
       const childPath = join(dirPath, child.name)
-      const childStat = await stat(childPath)
-      return {
-        name: child.name,
-        path: childPath,
-        type: (child.isDirectory() ? 'directory' : 'file') as 'file' | 'directory',
-        size: childStat.isFile() ? childStat.size : undefined,
-        modified: childStat.mtime.toISOString()
+      const type: 'file' | 'directory' = child.isDirectory() ? 'directory' : 'file'
+      // stat() can fail on protected entries at the drive root (System Volume
+      // Information, $Recycle.Bin, pagefile.sys, etc). Fall back to dirent info
+      // so a single inaccessible entry doesn't break the whole listing.
+      try {
+        const childStat = await stat(childPath)
+        return {
+          name: child.name,
+          path: childPath,
+          type,
+          size: childStat.isFile() ? childStat.size : undefined,
+          modified: childStat.mtime.toISOString()
+        }
+      } catch {
+        return { name: child.name, path: childPath, type }
       }
     })
   )
@@ -33,6 +41,26 @@ async function listLocalEntries(dirPath: string): Promise<FileEntry[]> {
     if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
     return a.name.localeCompare(b.name)
   })
+}
+
+/**
+ * Enumerates available drives on Windows (A:\ through Z:\). Detects each by
+ * attempting `stat()` on its root in parallel. Empty array on non-Windows.
+ */
+async function listWindowsDrives(): Promise<FileEntry[]> {
+  if (process.platform !== 'win32') return []
+  const checks: Promise<FileEntry | null>[] = []
+  for (let code = 'A'.charCodeAt(0); code <= 'Z'.charCodeAt(0); code++) {
+    const letter = String.fromCharCode(code)
+    const root = `${letter}:\\`
+    checks.push(
+      stat(root)
+        .then(() => ({ name: `${letter}:`, path: root, type: 'directory' as const }))
+        .catch(() => null)
+    )
+  }
+  const results = await Promise.all(checks)
+  return results.filter((d): d is FileEntry => d !== null)
 }
 
 export function registerFileHandlers(): void {
@@ -108,6 +136,13 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle('fs:list', async (_event, { dirPath }: { dirPath: string }): Promise<IPCResult<FileEntry[]>> => {
     try {
+      // Empty path = "above the drive root" view (Windows drives or Unix /).
+      if (!dirPath) {
+        if (process.platform === 'win32') {
+          return { ok: true, data: await listWindowsDrives() }
+        }
+        return { ok: true, data: await listLocalEntries('/') }
+      }
       return { ok: true, data: await listLocalEntries(dirPath) }
     } catch (err) {
       return { ok: false, error: (err as Error).message }

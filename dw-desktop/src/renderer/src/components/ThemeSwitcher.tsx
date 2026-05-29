@@ -27,6 +27,7 @@ export default function ThemeSwitcher({ theme, onChange }: ThemeSwitcherProps): 
         const active = theme === value
         return (
           <button
+            className="toolbar-btn"
             key={value}
             type="button"
             onClick={() => onChange(value)}

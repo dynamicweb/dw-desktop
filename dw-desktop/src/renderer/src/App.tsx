@@ -85,7 +85,7 @@ export default function App(): React.JSX.Element {
                 key={t}
                 type="button"
                 onClick={() => setTab(t)}
-                className="no-drag"
+                className="no-drag nav-btn"
                 style={{
                   padding: '5px 10px',
                   fontSize: 12,
