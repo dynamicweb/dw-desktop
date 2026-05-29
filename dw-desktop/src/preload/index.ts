@@ -103,7 +103,8 @@ const dw = {
     installNow: (): void => ipcRenderer.send('updater:installNow')
   },
   debug: {
-    getAll: (): Promise<unknown[]> => ipcRenderer.invoke('debug:getAll')
+    getAll: (): Promise<unknown[]> => ipcRenderer.invoke('debug:getAll'),
+    clear: (): Promise<void> => ipcRenderer.invoke('debug:clear')
   },
   settings: {
     getTheme: (): Promise<IPCResult<ThemeMode>> => ipcRenderer.invoke('settings:getTheme'),

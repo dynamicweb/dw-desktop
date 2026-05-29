@@ -9,7 +9,7 @@ export interface DebugEntry {
   responseBody?: string
 }
 
-const entries: DebugEntry[] = []
+let entries: DebugEntry[] = []
 
 function broadcast(entry: DebugEntry): void {
   try {
@@ -36,4 +36,7 @@ export function debugResponse(entry: DebugEntry, status: number, responseBody?: 
 
 export function registerDebugHandlers(): void {
   ipcMain.handle('debug:getAll', () => entries)
+  ipcMain.handle('debug:clear', () => {
+    entries = []
+  })
 }

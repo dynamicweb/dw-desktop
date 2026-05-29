@@ -61,6 +61,7 @@ export interface DWDesktopAPI {
   }
   debug: {
     getAll(): Promise<DebugEntry[]>
+    clear(): Promise<void>
   }
   settings: {
     getTheme(): Promise<IPCResult<ThemeMode>>

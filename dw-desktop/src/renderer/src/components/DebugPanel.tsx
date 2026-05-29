@@ -133,7 +133,11 @@ export default function DebugPanel(): React.JSX.Element {
               border: 'none',
               cursor: 'pointer'
             }}
-            onClick={() => setEntries([])}
+            onClick={() => {
+              setEntries([])
+              setSelected(null)
+              void window.dw.debug.clear()
+            }}
             onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--text-muted)')}
             onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--text-subtle)')}
           >
