@@ -19,6 +19,10 @@ import {
   getApiKey,
   saveOAuthCredentials,
   getOAuthCredentials,
+  saveUsername,
+  getUsername,
+  getCredentialHints,
+  obfuscateSecret,
   deleteAllCredentials
 } from './credentials'
 
@@ -69,14 +73,64 @@ describe('credentials', () => {
   it('saveOAuthCredentials stores both keys', async () => {
     await saveOAuthCredentials('staging', 'cid', 'csecret')
     expect(setPasswordMock).toHaveBeenCalledWith('dw-desktop', 'staging:oauthClientId', 'cid')
-    expect(setPasswordMock).toHaveBeenCalledWith('dw-desktop', 'staging:oauthClientSecret', 'csecret')
+    expect(setPasswordMock).toHaveBeenCalledWith(
+      'dw-desktop',
+      'staging:oauthClientSecret',
+      'csecret'
+    )
   })
 
-  it('deleteAllCredentials calls delete for all three key types', async () => {
+  it('saveUsername / getUsername use the correct account key', async () => {
+    await saveUsername('prod', 'admin')
+    expect(setPasswordMock).toHaveBeenCalledWith('dw-desktop', 'prod:username', 'admin')
+    getPasswordMock.mockResolvedValue('admin')
+    expect(await getUsername('prod')).toBe('admin')
+    expect(getPasswordMock).toHaveBeenCalledWith('dw-desktop', 'prod:username')
+  })
+
+  it('deleteAllCredentials clears api key, oauth pair, and username', async () => {
     await deleteAllCredentials('prod')
     expect(deletePasswordMock).toHaveBeenCalledWith('dw-desktop', 'prod:apiKey')
     expect(deletePasswordMock).toHaveBeenCalledWith('dw-desktop', 'prod:oauthClientId')
     expect(deletePasswordMock).toHaveBeenCalledWith('dw-desktop', 'prod:oauthClientSecret')
-    expect(deletePasswordMock).toHaveBeenCalledTimes(3)
+    expect(deletePasswordMock).toHaveBeenCalledWith('dw-desktop', 'prod:username')
+    expect(deletePasswordMock).toHaveBeenCalledTimes(4)
+  })
+
+  describe('obfuscateSecret', () => {
+    it('keeps first and last 4 chars of a long secret and masks the middle', () => {
+      expect(obfuscateSecret('abcdef1234567890wxyz')).toBe('abcd…wxyz')
+    })
+
+    it('fully masks short secrets', () => {
+      expect(obfuscateSecret('short')).toBe('••••••••')
+    })
+
+    it('returns null for an empty value', () => {
+      expect(obfuscateSecret('')).toBeNull()
+      expect(obfuscateSecret('   ')).toBeNull()
+    })
+  })
+
+  describe('getCredentialHints', () => {
+    it('returns clientId, username, and an obfuscated api key hint — never the raw key', async () => {
+      getPasswordMock.mockImplementation((_svc: string, account: string) => {
+        if (account === 'prod:oauthClientId') return Promise.resolve('the-client-id')
+        if (account === 'prod:username') return Promise.resolve('admin')
+        if (account === 'prod:apiKey') return Promise.resolve('SECRETKEY12345678ENDS')
+        return Promise.resolve(null)
+      })
+      const hints = await getCredentialHints('prod')
+      expect(hints.clientId).toBe('the-client-id')
+      expect(hints.username).toBe('admin')
+      expect(hints.apiKeyHint).toBe('SECR…ENDS')
+      expect(hints.apiKeyHint).not.toContain('12345678')
+    })
+
+    it('returns nulls when nothing is stored', async () => {
+      getPasswordMock.mockResolvedValue(null)
+      const hints = await getCredentialHints('prod')
+      expect(hints).toEqual({ clientId: null, username: null, apiKeyHint: null })
+    })
   })
 })

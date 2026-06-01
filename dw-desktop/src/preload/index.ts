@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   ConnectionStatus,
+  CredentialHints,
   FileEntry,
   IPCResult,
   PaneState,
@@ -31,15 +32,14 @@ const dw = {
     getActive: (): Promise<IPCResult<StoredEnv>> => ipcRenderer.invoke('env:getActive')
   },
   auth: {
-    test: (
-      env: StoredEnv,
-      credentials: unknown
-    ): Promise<IPCResult<ConnectionStatus>> =>
+    test: (env: StoredEnv, credentials: unknown): Promise<IPCResult<ConnectionStatus>> =>
       ipcRenderer.invoke('auth:test', { env, credentials }),
     saveCredentials: (envName: string, credentials: unknown): Promise<IPCResult> =>
       ipcRenderer.invoke('auth:saveCredentials', { envName, credentials }),
     loginPassword: (env: StoredEnv, username: string, password: string): Promise<IPCResult> =>
-      ipcRenderer.invoke('auth:loginPassword', { env, username, password })
+      ipcRenderer.invoke('auth:loginPassword', { env, username, password }),
+    getHints: (envName: string): Promise<IPCResult<CredentialHints>> =>
+      ipcRenderer.invoke('auth:getHints', { envName })
   },
   files: {
     list: (envName: string, path: string): Promise<IPCResult<FileEntry[]>> =>
@@ -108,7 +108,8 @@ const dw = {
   },
   settings: {
     getTheme: (): Promise<IPCResult<ThemeMode>> => ipcRenderer.invoke('settings:getTheme'),
-    setTheme: (theme: ThemeMode): Promise<IPCResult> => ipcRenderer.invoke('settings:setTheme', theme),
+    setTheme: (theme: ThemeMode): Promise<IPCResult> =>
+      ipcRenderer.invoke('settings:setTheme', theme),
     getPaneState: (envName: string): Promise<IPCResult<PaneState>> =>
       ipcRenderer.invoke('settings:getPaneState', envName),
     setPaneState: (envName: string, patch: PaneState): Promise<IPCResult> =>

@@ -3,6 +3,7 @@ import { mkdir, readdir, stat, writeFile } from 'fs/promises'
 import { basename, dirname, join, relative } from 'path'
 import AdmZip from 'adm-zip'
 import { resolveAuthHeader } from './auth'
+import { humanizeAuthError } from '../shared/authErrors'
 import type { FileEntry, IPCResult, StoredEnv } from '../shared/types'
 
 import { debugRequest, debugResponse } from './debug'
@@ -24,8 +25,6 @@ function toApiPath(virtualPath: string): string {
   return `/Files${v}`
 }
 
-
-
 interface UploadableFile {
   localPath: string
   remoteRelativePath: string
@@ -45,7 +44,10 @@ async function collectLocalFiles(localPaths: string[]): Promise<UploadableFile[]
   return files
 }
 
-async function collectDirectoryFiles(rootPath: string, currentPath: string): Promise<UploadableFile[]> {
+async function collectDirectoryFiles(
+  rootPath: string,
+  currentPath: string
+): Promise<UploadableFile[]> {
   const children = await readdir(currentPath, { withFileTypes: true })
   const files: UploadableFile[] = []
   for (const child of children) {
@@ -75,8 +77,25 @@ export async function listFiles(env: StoredEnv, path: string): Promise<IPCResult
     const dbEntry = debugRequest('GET', url)
     const response = await fetch(url, { headers: { Authorization: authHeader } })
     const bodyText = await response.text()
-    debugResponse(dbEntry, response.status, (() => { try { return JSON.stringify(JSON.parse(bodyText), null, 2).slice(0, 4000) } catch { return bodyText.slice(0, 4000) } })())
-    if (!response.ok) return { ok: false, error: `Server returned ${response.status}: ${bodyText.slice(0, 200)}` }
+    debugResponse(
+      dbEntry,
+      response.status,
+      (() => {
+        try {
+          return JSON.stringify(JSON.parse(bodyText), null, 2).slice(0, 4000)
+        } catch {
+          return bodyText.slice(0, 4000)
+        }
+      })()
+    )
+    if (!response.ok)
+      return {
+        ok: false,
+        error: humanizeAuthError(
+          `Server returned ${response.status}: ${bodyText.slice(0, 200)}`,
+          env
+        )
+      }
 
     const payload = JSON.parse(bodyText) as {
       model?: {
@@ -102,7 +121,7 @@ export async function listFiles(env: StoredEnv, path: string): Promise<IPCResult
 
     return { ok: true, data: entries }
   } catch (err) {
-    return { ok: false, error: (err as Error).message }
+    return { ok: false, error: humanizeAuthError((err as Error).message, env) }
   }
 }
 
@@ -152,7 +171,12 @@ export async function uploadFiles(
           'POST',
           uploadUrl,
           JSON.stringify(
-            { path: groupRemotePath, skipExistingFiles: !overwrite, allowOverwrite: overwrite, files: batchFiles },
+            {
+              path: groupRemotePath,
+              skipExistingFiles: !overwrite,
+              allowOverwrite: overwrite,
+              files: batchFiles
+            },
             null,
             2
           )
@@ -160,25 +184,43 @@ export async function uploadFiles(
 
         for (const file of batch) {
           const chunks: Buffer[] = []
-          for await (const chunk of createReadStream(file.localPath, { highWaterMark: 256 * 1024 })) {
+          for await (const chunk of createReadStream(file.localPath, {
+            highWaterMark: 256 * 1024
+          })) {
             const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array)
             chunks.push(buf)
             transferred += buf.byteLength
             onProgress(transferred, totalBytes, file.remoteRelativePath)
           }
-          formData.append('files', new Blob([Buffer.concat(chunks)]), basename(file.remoteRelativePath))
+          formData.append(
+            'files',
+            new Blob([Buffer.concat(chunks)]),
+            basename(file.remoteRelativePath)
+          )
         }
 
-        const response = await fetch(uploadUrl, { method: 'POST', headers: { Authorization: authHeader }, body: formData })
+        const response = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { Authorization: authHeader },
+          body: formData
+        })
         const bodyText = await response.text()
         debugResponse(
           dbEntry,
           response.status,
           (() => {
-            try { return JSON.stringify(JSON.parse(bodyText), null, 2).slice(0, 2000) } catch { return bodyText.slice(0, 500) }
+            try {
+              return JSON.stringify(JSON.parse(bodyText), null, 2).slice(0, 2000)
+            } catch {
+              return bodyText.slice(0, 500)
+            }
           })()
         )
-        if (!response.ok) return { ok: false, error: `Upload failed with status ${response.status}: ${bodyText.slice(0, 200)}` }
+        if (!response.ok)
+          return {
+            ok: false,
+            error: `Upload failed with status ${response.status}: ${bodyText.slice(0, 200)}`
+          }
       }
     }
 
@@ -188,7 +230,11 @@ export async function uploadFiles(
   }
 }
 
-export async function downloadFile(env: StoredEnv, remotePath: string, localPath: string): Promise<IPCResult> {
+export async function downloadFile(
+  env: StoredEnv,
+  remotePath: string,
+  localPath: string
+): Promise<IPCResult> {
   try {
     const authHeader = await resolveAuthHeader(env)
     const apiPath = toApiPath(remotePath)
@@ -216,13 +262,18 @@ export async function downloadFile(env: StoredEnv, remotePath: string, localPath
     if (!response.ok) {
       const errText = await response.text()
       debugResponse(dbEntry, response.status, errText)
-      return { ok: false, error: `Transfer failed with status ${response.status}: ${errText.slice(0, 200)}` }
+      return {
+        ok: false,
+        error: `Transfer failed with status ${response.status}: ${errText.slice(0, 200)}`
+      }
     }
 
     const buffer = Buffer.from(await response.arrayBuffer())
     const contentType = response.headers.get('content-type') ?? ''
     const contentLengthHeader = response.headers.get('content-length') ?? '(none)'
-    const isZip = contentType.includes('zip') || (buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b)
+    const isZip =
+      contentType.includes('zip') ||
+      (buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b)
 
     await mkdir(localPath, { recursive: true })
 
@@ -249,7 +300,11 @@ export async function downloadFile(env: StoredEnv, remotePath: string, localPath
     const fileCount = zipEntries.filter((e) => !e.isDirectory).length
     const dirCount = zipEntries.filter((e) => e.isDirectory).length
     const totalUncompressed = zipEntries.reduce((sum, e) => sum + (e.header?.size ?? 0), 0)
-    const sampleEntries = zipEntries.slice(0, 20).map((e) => `  ${e.isDirectory ? '[d]' : '[f]'} ${e.entryName} (${e.header?.size ?? 0} bytes)`)
+    const sampleEntries = zipEntries
+      .slice(0, 20)
+      .map(
+        (e) => `  ${e.isDirectory ? '[d]' : '[f]'} ${e.entryName} (${e.header?.size ?? 0} bytes)`
+      )
     const truncatedNote = zipEntries.length > 20 ? `  ... and ${zipEntries.length - 20} more` : ''
 
     // For directory downloads, ensure the chosen folder name becomes the wrapping dir locally.
@@ -286,7 +341,9 @@ export async function downloadFile(env: StoredEnv, remotePath: string, localPath
         'entries:',
         ...sampleEntries,
         truncatedNote
-      ].filter(Boolean).join('\n')
+      ]
+        .filter(Boolean)
+        .join('\n')
     )
     return { ok: true }
   } catch (err) {
@@ -328,7 +385,11 @@ export async function deleteRemote(env: StoredEnv, virtualPath: string): Promise
   }
 }
 
-export async function copyRemote(env: StoredEnv, source: string, destination: string): Promise<IPCResult> {
+export async function copyRemote(
+  env: StoredEnv,
+  source: string,
+  destination: string
+): Promise<IPCResult> {
   try {
     const authHeader = await resolveAuthHeader(env)
     const response = await fetch(`${baseUrl(env)}/Admin/Api/Management/Files/Copy`, {
@@ -367,7 +428,10 @@ export async function renameRemote(
     const errText = response.ok ? undefined : await response.text()
     debugResponse(dbEntry, response.status, errText)
     if (!response.ok) {
-      return { ok: false, error: `Rename failed with status ${response.status}: ${(errText ?? '').slice(0, 200)}` }
+      return {
+        ok: false,
+        error: `Rename failed with status ${response.status}: ${(errText ?? '').slice(0, 200)}`
+      }
     }
     return { ok: true }
   } catch (err) {

@@ -38,8 +38,8 @@ function StepDots({ current }: { current: number }): React.JSX.Element {
               step === current
                 ? 'var(--accent)'
                 : step < current
-                ? 'var(--text-muted)'
-                : 'var(--border-strong)'
+                  ? 'var(--text-muted)'
+                  : 'var(--border-strong)'
           }}
         />
       ))}
@@ -62,7 +62,11 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
     password: ''
   })
   const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ connected: boolean; version?: string; error?: string } | null>(null)
+  const [testResult, setTestResult] = useState<{
+    connected: boolean
+    version?: string
+    error?: string
+  } | null>(null)
 
   useEffect(() => {
     function handleEsc(e: KeyboardEvent): void {
@@ -119,7 +123,11 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
     if (step2.authTab === 'apiKey') {
       credentials = { authType: 'apiKey', apiKey: step2.apiKey }
     } else if (step2.authTab === 'oauth') {
-      credentials = { authType: 'oauth', clientId: step2.clientId, clientSecret: step2.clientSecret }
+      credentials = {
+        authType: 'oauth',
+        clientId: step2.clientId,
+        clientSecret: step2.clientSecret
+      }
     } else {
       credentials = { authType: 'password', username: step2.username, password: step2.password }
     }
@@ -132,15 +140,19 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
   async function handleSave(): Promise<void> {
     const env = buildEnv()
     await addEnv(env)
-    let credentials: unknown
-    if (step2.authTab === 'apiKey') {
-      credentials = { authType: 'apiKey', apiKey: step2.apiKey }
-    } else if (step2.authTab === 'oauth') {
-      credentials = { authType: 'oauth', clientId: step2.clientId, clientSecret: step2.clientSecret }
+    if (step2.authTab === 'password') {
+      // Password auth has no secret to store directly — exchange the credentials
+      // for an API key (or fall back to storing the password) via loginPassword.
+      await window.dw.auth.loginPassword(env, step2.username, step2.password)
+    } else if (step2.authTab === 'apiKey') {
+      await window.dw.auth.saveCredentials(env.name, { authType: 'apiKey', apiKey: step2.apiKey })
     } else {
-      credentials = { authType: 'password', username: step2.username, password: step2.password }
+      await window.dw.auth.saveCredentials(env.name, {
+        authType: 'oauth',
+        clientId: step2.clientId,
+        clientSecret: step2.clientSecret
+      })
     }
-    await window.dw.auth.saveCredentials(env.name, credentials)
     await setActiveEnv(env.name)
     onDone()
   }
@@ -244,7 +256,15 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
             el.style.color = 'var(--text-subtle)'
           }}
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          >
             <path d="M3 3L13 13M13 3L3 13" />
           </svg>
         </button>
@@ -333,14 +353,17 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
                   </button>
                 </div>
                 <p style={hintStyle}>
-                  Leave empty to open your home folder. The app remembers where you last
-                  navigated per environment.
+                  Leave empty to open your home folder. The app remembers where you last navigated
+                  per environment.
                 </p>
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>
               <button
-                style={{ ...btnPrimary, opacity: (!step1.name || !hostIsValid(step1.host)) ? 0.5 : 1 }}
+                style={{
+                  ...btnPrimary,
+                  opacity: !step1.name || !hostIsValid(step1.host) ? 0.5 : 1
+                }}
                 disabled={!step1.name || !hostIsValid(step1.host)}
                 type="button"
                 onClick={() => setStep(2)}
@@ -393,7 +416,11 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
                     color: step2.authTab === tab ? 'var(--text)' : 'var(--text-subtle)'
                   }}
                 >
-                  {tab === 'oauth' ? 'OAuth (recommended)' : tab === 'apiKey' ? 'API key' : 'Username & password'}
+                  {tab === 'oauth'
+                    ? 'OAuth (recommended)'
+                    : tab === 'apiKey'
+                      ? 'API key'
+                      : 'Username & password'}
                 </button>
               ))}
             </div>
@@ -402,14 +429,25 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div>
                   <label style={labelStyle}>Client ID</label>
-                  <input style={inputStyle} type="text" value={step2.clientId} onChange={(e) => setStep2((s) => ({ ...s, clientId: e.target.value }))} />
+                  <input
+                    style={inputStyle}
+                    type="text"
+                    value={step2.clientId}
+                    onChange={(e) => setStep2((s) => ({ ...s, clientId: e.target.value }))}
+                  />
                 </div>
                 <div>
                   <label style={labelStyle}>Client secret</label>
-                  <input style={inputStyle} type="password" value={step2.clientSecret} onChange={(e) => setStep2((s) => ({ ...s, clientSecret: e.target.value }))} />
+                  <input
+                    style={inputStyle}
+                    type="password"
+                    value={step2.clientSecret}
+                    onChange={(e) => setStep2((s) => ({ ...s, clientSecret: e.target.value }))}
+                  />
                 </div>
                 <p style={hintStyle}>
-                  Create an OAuth client in your DW backend under Settings → OAuth Clients. Set grant type to Client credentials.
+                  Create an OAuth client in your DW backend under Settings → OAuth Clients. Set
+                  grant type to Client credentials.
                 </p>
               </div>
             )}
@@ -417,8 +455,15 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
             {step2.authTab === 'apiKey' && (
               <div>
                 <label style={labelStyle}>API key</label>
-                <input style={inputStyle} type="password" value={step2.apiKey} onChange={(e) => setStep2((s) => ({ ...s, apiKey: e.target.value }))} />
-                <p style={hintStyle}>Generate a key in your DW backend under Settings → API Keys.</p>
+                <input
+                  style={inputStyle}
+                  type="password"
+                  value={step2.apiKey}
+                  onChange={(e) => setStep2((s) => ({ ...s, apiKey: e.target.value }))}
+                />
+                <p style={hintStyle}>
+                  Generate a key in your DW backend under Settings → API Keys.
+                </p>
               </div>
             )}
 
@@ -426,13 +471,25 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div>
                   <label style={labelStyle}>Username</label>
-                  <input style={inputStyle} type="text" value={step2.username} onChange={(e) => setStep2((s) => ({ ...s, username: e.target.value }))} />
+                  <input
+                    style={inputStyle}
+                    type="text"
+                    value={step2.username}
+                    onChange={(e) => setStep2((s) => ({ ...s, username: e.target.value }))}
+                  />
                 </div>
                 <div>
                   <label style={labelStyle}>Password</label>
-                  <input style={inputStyle} type="password" value={step2.password} onChange={(e) => setStep2((s) => ({ ...s, password: e.target.value }))} />
+                  <input
+                    style={inputStyle}
+                    type="password"
+                    value={step2.password}
+                    onChange={(e) => setStep2((s) => ({ ...s, password: e.target.value }))}
+                  />
                 </div>
-                <p style={hintStyle}>We'll exchange your credentials for an API key and store that instead.</p>
+                <p style={hintStyle}>
+                  We'll exchange your credentials for an API key and store that instead.
+                </p>
               </div>
             )}
 
@@ -443,7 +500,9 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
             )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
-              <button style={btnSecondary} type="button" onClick={() => setStep(1)}>← Back</button>
+              <button style={btnSecondary} type="button" onClick={() => setStep(1)}>
+                ← Back
+              </button>
               <button
                 style={{ ...btnPrimary, opacity: testing ? 0.6 : 1 }}
                 type="button"
@@ -485,8 +544,12 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
               </p>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <button style={btnSecondary} type="button" onClick={() => setStep(2)}>← Back</button>
-              <button style={btnPrimary} type="button" onClick={() => void handleSave()}>Save & open →</button>
+              <button style={btnSecondary} type="button" onClick={() => setStep(2)}>
+                ← Back
+              </button>
+              <button style={btnPrimary} type="button" onClick={() => void handleSave()}>
+                Save & open →
+              </button>
             </div>
           </>
         )}

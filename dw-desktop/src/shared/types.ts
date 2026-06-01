@@ -13,6 +13,18 @@ export function envLabel(env: StoredEnv): string {
   return env.displayName?.trim() || env.name
 }
 
+/** Short label for an environment's authentication type, shown as a badge in the UI. */
+export function authTypeLabel(authType: StoredEnv['authType']): string {
+  switch (authType) {
+    case 'apiKey':
+      return 'API key'
+    case 'oauth':
+      return 'OAuth'
+    case 'password':
+      return 'Username'
+  }
+}
+
 export type ThemeMode = 'light' | 'dark' | 'auto'
 
 export interface PaneState {
@@ -63,4 +75,14 @@ export interface ConnectionStatus {
   connected: boolean
   version?: string
   error?: string
+}
+
+/** Non-secret, safe-to-display parts of an environment's stored credentials. */
+export interface CredentialHints {
+  /** OAuth client id (not a secret). */
+  clientId: string | null
+  /** Saved username for password auth. */
+  username: string | null
+  /** Obfuscated preview of the API key (e.g. "abcd…wxyz") — never the full key. */
+  apiKeyHint: string | null
 }

@@ -14,8 +14,12 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('adm-zip', () => ({
   default: class MockAdmZip {
-    constructor(buffer: Buffer) { admZipConstructorMock(buffer) }
-    extractAllTo(path: string, overwrite: boolean): void { extractAllToMock(path, overwrite) }
+    constructor(buffer: Buffer) {
+      admZipConstructorMock(buffer)
+    }
+    extractAllTo(path: string, overwrite: boolean): void {
+      extractAllToMock(path, overwrite)
+    }
     getEntries(): Array<{ entryName: string; isDirectory: boolean; header: { size: number } }> {
       return []
     }
@@ -46,14 +50,15 @@ describe('dw-api', () => {
   it('listFiles maps file entries correctly', async () => {
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
-      text: async () => JSON.stringify({
-        model: {
-          data: [
-            { name: 'Images', sizeInBytes: 0, updatedAt: '2026-04-10T08:00:00.000Z' },
-            { name: 'README.txt', sizeInBytes: 128, updatedAt: '2026-04-15T10:00:00.000Z' }
-          ]
-        }
-      })
+      text: async () =>
+        JSON.stringify({
+          model: {
+            data: [
+              { name: 'Images', sizeInBytes: 0, updatedAt: '2026-04-10T08:00:00.000Z' },
+              { name: 'README.txt', sizeInBytes: 128, updatedAt: '2026-04-15T10:00:00.000Z' }
+            ]
+          }
+        })
     } as Response)
 
     const result = await listFiles(env, '/')
@@ -62,7 +67,12 @@ describe('dw-api', () => {
     expect(result.ok).toBe(true)
     expect(result.data).toHaveLength(2)
     expect(result.data![0]).toMatchObject({ name: 'Images', type: 'directory', path: '/Images' })
-    expect(result.data![1]).toMatchObject({ name: 'README.txt', type: 'file', size: 128, path: '/README.txt' })
+    expect(result.data![1]).toMatchObject({
+      name: 'README.txt',
+      type: 'file',
+      size: 128,
+      path: '/README.txt'
+    })
   })
 
   it('listFiles returns error on non-ok response', async () => {
@@ -73,7 +83,8 @@ describe('dw-api', () => {
     } as Response)
     const result = await listFiles(env, '/')
     expect(result.ok).toBe(false)
-    expect(result.error).toContain('401')
+    // 401 is humanized into a user-facing authentication message.
+    expect(result.error).toContain('Authentication failed')
   })
 
   it('downloadFile extracts zip archive into a subfolder named after the remote folder', async () => {
