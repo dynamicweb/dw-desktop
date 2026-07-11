@@ -1,5 +1,6 @@
 import { getApiKey, getOAuthCredentials } from './credentials'
 import { debugRequest, debugResponse } from './debug'
+import { humanizeAuthError } from '../shared/authErrors'
 import type { ConnectionStatus, StoredEnv } from '../shared/types'
 
 interface OAuthCacheEntry {
@@ -42,7 +43,11 @@ export async function resolveAuthHeader(env: StoredEnv): Promise<string> {
     const clientId = creds.clientId.trim()
     const clientSecret = creds.clientSecret.trim()
     const tokenUrl = `${env.protocol}://${env.host}/Admin/OAuth/token`
-    const body = { grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }
+    const body = {
+      grant_type: 'client_credentials',
+      client_id: clientId,
+      client_secret: clientSecret
+    }
 
     const dbEntry = debugRequest(
       'POST',
@@ -63,7 +68,9 @@ export async function resolveAuthHeader(env: StoredEnv): Promise<string> {
     }
 
     let payload: Record<string, unknown>
-    try { payload = JSON.parse(bodyText) as Record<string, unknown> } catch {
+    try {
+      payload = JSON.parse(bodyText) as Record<string, unknown>
+    } catch {
       throw new Error(`OAuth response was not JSON: ${bodyText.slice(0, 200)}`)
     }
     const token = String(payload['token'] ?? payload['Token'] ?? payload['access_token'] ?? '')
@@ -114,7 +121,10 @@ export async function testConnection(
         { headers: { Authorization: `Bearer ${credentials.apiKey}` } }
       )
       if (!response.ok) {
-        return { connected: false, error: `Server returned ${response.status}` }
+        return {
+          connected: false,
+          error: humanizeAuthError(`Server returned ${response.status}`, env)
+        }
       }
       return { connected: true }
     }
@@ -123,7 +133,11 @@ export async function testConnection(
       const clientId = credentials.clientId.trim()
       const clientSecret = credentials.clientSecret.trim()
       const tokenUrl = `${base}/Admin/OAuth/token`
-      const body = { grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }
+      const body = {
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret
+      }
 
       const dbEntry = debugRequest(
         'POST',
@@ -142,15 +156,26 @@ export async function testConnection(
       if (!tokenResponse.ok) {
         return {
           connected: false,
-          error: `OAuth token request failed (${tokenResponse.status})${bodyText ? ': ' + bodyText.slice(0, 300) : ''}`
+          error: humanizeAuthError(
+            `OAuth token request failed (${tokenResponse.status})${bodyText ? ': ' + bodyText.slice(0, 300) : ''}`,
+            env
+          )
         }
       }
       let tokenPayload: Record<string, unknown>
-      try { tokenPayload = JSON.parse(bodyText) as Record<string, unknown> } catch {
-        return { connected: false, error: `OAuth response was not JSON: ${bodyText.slice(0, 200)}` }
+      try {
+        tokenPayload = JSON.parse(bodyText) as Record<string, unknown>
+      } catch {
+        return { connected: false, error: humanizeAuthError('OAuth response was not JSON', env) }
       }
-      const token = String(tokenPayload['token'] ?? tokenPayload['Token'] ?? tokenPayload['access_token'] ?? '')
-      if (!token) return { connected: false, error: `OAuth response did not contain a token: ${bodyText.slice(0, 200)}` }
+      const token = String(
+        tokenPayload['token'] ?? tokenPayload['Token'] ?? tokenPayload['access_token'] ?? ''
+      )
+      if (!token)
+        return {
+          connected: false,
+          error: humanizeAuthError('OAuth response did not contain a token', env)
+        }
       return { connected: true }
     }
 
@@ -162,7 +187,10 @@ export async function testConnection(
         redirect: 'follow'
       })
       if (!loginResponse.ok) {
-        return { connected: false, error: `Login failed with status ${loginResponse.status}` }
+        return {
+          connected: false,
+          error: humanizeAuthError(`Login failed with status ${loginResponse.status}`, env)
+        }
       }
       // Verify the session can reach the API
       const verifyResponse = await fetch(
@@ -170,13 +198,16 @@ export async function testConnection(
         { headers: { Cookie: loginResponse.headers.get('set-cookie') ?? '' } }
       )
       if (!verifyResponse.ok) {
-        return { connected: false, error: `Authenticated but API returned ${verifyResponse.status}` }
+        return {
+          connected: false,
+          error: humanizeAuthError(`Authenticated but API returned ${verifyResponse.status}`, env)
+        }
       }
       return { connected: true }
     }
 
     return { connected: false, error: 'Unknown auth type' }
   } catch (err) {
-    return { connected: false, error: (err as Error).message }
+    return { connected: false, error: humanizeAuthError((err as Error).message, env) }
   }
 }

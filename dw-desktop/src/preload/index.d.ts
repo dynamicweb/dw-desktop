@@ -1,4 +1,12 @@
-import type { ConnectionStatus, FileEntry, IPCResult, PaneState, StoredEnv, ThemeMode } from '../shared/types'
+import type {
+  ConnectionStatus,
+  CredentialHints,
+  FileEntry,
+  IPCResult,
+  PaneState,
+  StoredEnv,
+  ThemeMode
+} from '../shared/types'
 
 export interface ProgressPayload {
   jobId: string
@@ -26,6 +34,7 @@ export interface DWDesktopAPI {
     test(env: StoredEnv, credentials: unknown): Promise<IPCResult<ConnectionStatus>>
     saveCredentials(envName: string, credentials: unknown): Promise<IPCResult>
     loginPassword(env: StoredEnv, username: string, password: string): Promise<IPCResult>
+    getHints(envName: string): Promise<IPCResult<CredentialHints>>
   }
   files: {
     list(envName: string, path: string): Promise<IPCResult<FileEntry[]>>

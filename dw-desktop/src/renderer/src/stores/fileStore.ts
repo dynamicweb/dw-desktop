@@ -16,9 +16,11 @@ function loadHighlighted(): DiffStatus[] {
     const raw = localStorage.getItem(HIGHLIGHTED_STATUSES_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as unknown
-      if (Array.isArray(parsed)) return parsed.filter((s): s is DiffStatus =>
-        s === 'local-only' || s === 'remote-only' || s === 'different' || s === 'identical'
-      )
+      if (Array.isArray(parsed))
+        return parsed.filter(
+          (s): s is DiffStatus =>
+            s === 'local-only' || s === 'remote-only' || s === 'different' || s === 'identical'
+        )
     }
   } catch {
     // ignore
@@ -30,13 +32,14 @@ interface FileState {
   remoteEntries: FileEntry[]
   remotePath: string
   remoteEnvName: string | null
+  remoteError: string | null
   localEntries: FileEntry[]
   localPath: string
   selected: { pane: 'local' | 'remote'; paths: string[] }
   compareMode: CompareMode
   diffMap: Map<string, DiffStatus>
   highlightedStatuses: DiffStatus[]
-  loadRemote: (envName: string, path: string) => Promise<void>
+  loadRemote: (envName: string, path: string) => Promise<boolean>
   loadLocal: (path: string, envName?: string | null) => Promise<boolean>
   setSelected: (pane: 'local' | 'remote', paths: string[]) => void
   mirrorNav: boolean
@@ -58,6 +61,7 @@ export const useFileStore = create<FileState>((set, get) => ({
   remoteEntries: [],
   remotePath: '/',
   remoteEnvName: null,
+  remoteError: null,
   localEntries: [],
   localPath: '',
   selected: { pane: 'local', paths: [] },
@@ -69,9 +73,25 @@ export const useFileStore = create<FileState>((set, get) => ({
   loadRemote: async (envName, path) => {
     const result = await window.dw.files.list(envName, path)
     if (result.ok) {
-      set({ remoteEntries: result.data ?? [], remotePath: path, remoteEnvName: envName })
+      set({
+        remoteEntries: result.data ?? [],
+        remotePath: path,
+        remoteEnvName: envName,
+        remoteError: null
+      })
       persistRemote(envName, path)
+      return true
     }
+    // Surface the failure: clear stale entries and record why the listing failed
+    // so the UI can explain (bad credentials, unreachable host, server error, …)
+    // instead of just showing an empty pane.
+    set({
+      remoteEntries: [],
+      remotePath: path,
+      remoteEnvName: envName,
+      remoteError: result.error ?? 'Could not load remote files.'
+    })
+    return false
   },
 
   loadLocal: async (path, envName) => {

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { envLabel, type StoredEnv } from '../../../shared/types'
+import { authTypeLabel, envLabel, type StoredEnv } from '../../../shared/types'
 import { useEnvStore } from '../stores/envStore'
 
 type SortKey =
@@ -16,7 +16,7 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'name-asc', label: 'Project A→Z' },
   { value: 'name-desc', label: 'Project Z→A' },
   { value: 'date-asc', label: 'Date: oldest' },
-  { value: 'date-desc', label: 'Date: newest' },
+  { value: 'date-desc', label: 'Date: newest' }
 ]
 
 function applySorting(envs: StoredEnv[], sort: SortKey): StoredEnv[] {
@@ -124,7 +124,11 @@ function EnvRow({
         alignItems: 'center',
         gap: 4,
         padding: isActive ? '2px 8px 2px 0' : '2px 8px 2px 2px',
-        background: isActive ? 'rgba(208, 112, 48, 0.08)' : hover ? 'var(--surface-raised)' : 'transparent',
+        background: isActive
+          ? 'rgba(208, 112, 48, 0.08)'
+          : hover
+            ? 'var(--surface-raised)'
+            : 'transparent',
         borderLeft: isActive ? '2px solid var(--accent)' : '2px solid transparent',
         transition: 'background 80ms ease-out'
       }}
@@ -149,15 +153,41 @@ function EnvRow({
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
             style={{
-              fontSize: 12,
-              color: 'var(--text)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              lineHeight: 1.3
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              minWidth: 0
             }}
           >
-            {envLabel(env)}
+            <span
+              style={{
+                fontSize: 12,
+                color: 'var(--text)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                lineHeight: 1.3
+              }}
+            >
+              {envLabel(env)}
+            </span>
+            <span
+              title={`Authentication: ${authTypeLabel(env.authType)}`}
+              style={{
+                flexShrink: 0,
+                fontSize: 9,
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                color: 'var(--text-subtle)',
+                background: 'var(--surface-raised)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--r-sm)',
+                padding: '0 4px',
+                lineHeight: 1.5
+              }}
+            >
+              {authTypeLabel(env.authType)}
+            </span>
           </div>
           <div
             style={{
@@ -191,7 +221,16 @@ function EnvRow({
             onEdit()
           }}
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M11.5 2.5l2 2L5 13H3v-2z" />
           </svg>
         </IconButton>
@@ -202,7 +241,16 @@ function EnvRow({
             onDelete()
           }}
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M3 4h10M6.5 4V2.5h3V4M5 4l.5 9h5l.5-9" />
           </svg>
         </IconButton>
