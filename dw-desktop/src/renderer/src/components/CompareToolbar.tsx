@@ -19,6 +19,8 @@ interface CompareToolbarProps {
   onMatchRemoteToLocal: () => void
   onMatchLocalToRemote: () => void
   isLoading: boolean
+  /** Right-aligned content (the remote "load all" control), shown over the remote pane. */
+  rightSlot?: React.ReactNode
 }
 
 function Expand({ show, animate, children }: { show: boolean; animate?: boolean; children: React.ReactNode }): React.JSX.Element {
@@ -113,7 +115,8 @@ export default function CompareToolbar({
   matchLocalPathExists,
   onMatchRemoteToLocal,
   onMatchLocalToRemote,
-  isLoading
+  isLoading,
+  rightSlot
 }: CompareToolbarProps): React.JSX.Element {
   const stableDiffMapRef = useRef(diffMap)
   if (!isLoading) stableDiffMapRef.current = diffMap
@@ -142,9 +145,14 @@ export default function CompareToolbar({
   const showFilter = compareOn && stableHasDiff
   const showMirrorMatch = !stablePathsMatch && (localOnFiles || remoteOnFiles)
 
-  const compareBorder = compareOn && !stablePathsMatch ? '1px solid var(--accent)' : '1px solid var(--border-strong)'
-  const compareBg = compareOn && stablePathsMatch ? 'var(--accent)' : 'var(--surface-raised)'
-  const compareColor = compareOn ? (stablePathsMatch ? '#fff' : 'var(--accent)') : 'var(--text-subtle)'
+  // 'on' compares across all folders; 'auto' only compares when the folder
+  // paths match. So in 'auto' mode with mismatched paths, compare is enabled
+  // but paused — shown as an outline rather than a filled button.
+  const matchOnly = mode === 'auto'
+  const compareActive = compareOn && (!matchOnly || stablePathsMatch)
+  const compareBorder = compareOn ? '1px solid var(--accent)' : '1px solid var(--border-strong)'
+  const compareBg = compareActive ? 'var(--accent)' : 'var(--surface-raised)'
+  const compareColor = compareActive ? '#fff' : compareOn ? 'var(--accent)' : 'var(--text-subtle)'
 
   return (
     <div
@@ -246,10 +254,8 @@ export default function CompareToolbar({
           type="button"
           title={
             compareOn
-              ? stablePathsMatch
-                ? 'Disable compare'
-                : 'Compare is enabled — navigate both panes to a matching /Files/… folder to activate'
-              : 'Enable compare — detects differences by comparing file sizes'
+              ? 'Disable compare'
+              : 'Enable compare — compares the two panes by file name and size, even across different folders'
           }
           className="toolbar-btn"
           onClick={() => { triggerCompareAnimation(); onModeChange(compareOn ? 'off' : 'auto') }}
@@ -258,11 +264,39 @@ export default function CompareToolbar({
             background: compareBg,
             color: compareColor,
             border: compareBorder,
-            borderRadius: showFilter ? 'var(--r-sm) 0 0 var(--r-sm)' : 'var(--r-sm)',
+            borderRadius: compareOn ? 'var(--r-sm) 0 0 var(--r-sm)' : 'var(--r-sm)',
           }}
         >
           ⊟ Compare
         </button>
+        <Expand show={compareOn}>
+          <button
+            type="button"
+            className="toolbar-btn"
+            title={
+              matchOnly
+                ? 'Only comparing when folder paths match — click to compare across all folders'
+                : 'Comparing across all folders — click to only compare when folder paths match'
+            }
+            onClick={() => onModeChange(matchOnly ? 'on' : 'auto')}
+            style={{
+              ...segBase,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 26,
+              padding: 0,
+              fontSize: 12,
+              background: matchOnly ? 'var(--accent)' : 'var(--surface-raised)',
+              color: matchOnly ? '#fff' : 'var(--text-subtle)',
+              border: compareBorder,
+              borderLeft: 'none',
+              borderRadius: showFilter ? 0 : '0 var(--r-sm) var(--r-sm) 0',
+            }}
+          >
+            ⇄
+          </button>
+        </Expand>
         <Expand show={showFilter} animate={compareAnimate}>
           <button
             type="button"
@@ -335,6 +369,21 @@ export default function CompareToolbar({
           })}
         </div>
       </Expand>
+
+      {rightSlot != null && (
+        <div
+          style={{
+            marginLeft: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            minWidth: 0,
+            paddingLeft: 8
+          }}
+        >
+          {rightSlot}
+        </div>
+      )}
     </div>
   )
 }

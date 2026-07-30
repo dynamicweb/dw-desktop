@@ -7,6 +7,12 @@ export interface StoredEnv {
   protocol: 'http' | 'https'
   authType: 'apiKey' | 'oauth' | 'password'
   localStartPath?: string
+  /**
+   * How many entries to fetch per page when listing a remote folder. Folders
+   * larger than this show a "load all" prompt instead of loading eagerly.
+   * Optional; defaults to 500 when unset.
+   */
+  listPageSize?: number
 }
 
 export function envLabel(env: StoredEnv): string {
@@ -48,6 +54,27 @@ export interface FileEntry {
   modified?: string
 }
 
+/**
+ * A remote directory listing. The server pages results, so `entries` may hold
+ * only the first page: `totalCount` is the true number of items in the folder
+ * and `hasMore` indicates that more entries exist beyond what was loaded.
+ */
+export interface RemoteListing {
+  entries: FileEntry[]
+  /** Total number of items in the remote folder (reported by the server). */
+  totalCount: number
+  /** True when `entries` is a partial page and more items remain unloaded. */
+  hasMore: boolean
+}
+
+/** Result of an upload: how many files were written vs. skipped as duplicates. */
+export interface UploadOutcome {
+  uploaded: number
+  skipped: number
+  /** Base names of files that already existed and were left untouched. */
+  skippedNames: string[]
+}
+
 export type DiffStatus = 'local-only' | 'remote-only' | 'different' | 'identical'
 
 export type CompareMode = 'off' | 'auto' | 'on'
@@ -59,10 +86,12 @@ export interface TransferJob {
   label: string
   remotePath: string
   localPath: string
-  status: 'queued' | 'active' | 'done' | 'error'
+  status: 'queued' | 'active' | 'done' | 'error' | 'skipped'
   transferred: number
   total: number
   error?: string
+  /** For uploads: base names the server skipped because they already existed. */
+  skippedNames?: string[]
 }
 
 export interface IPCResult<T = unknown> {

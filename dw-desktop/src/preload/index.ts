@@ -5,6 +5,7 @@ import type {
   FileEntry,
   IPCResult,
   PaneState,
+  RemoteListing,
   StoredEnv,
   ThemeMode
 } from '../shared/types'
@@ -20,6 +21,9 @@ interface DonePayload {
   jobId: string
   ok: boolean
   error?: string
+  uploaded?: number
+  skipped?: number
+  skippedNames?: string[]
 }
 
 const dw = {
@@ -42,8 +46,8 @@ const dw = {
       ipcRenderer.invoke('auth:getHints', { envName })
   },
   files: {
-    list: (envName: string, path: string): Promise<IPCResult<FileEntry[]>> =>
-      ipcRenderer.invoke('files:list', { envName, path }),
+    list: (envName: string, path: string, loadAll = false): Promise<IPCResult<RemoteListing>> =>
+      ipcRenderer.invoke('files:list', { envName, path, loadAll }),
     upload: (
       envName: string,
       localPaths: string[],

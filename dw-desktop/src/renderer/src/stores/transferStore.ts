@@ -23,7 +23,7 @@ export const useTransferStore = create<TransferState>((set) => ({
 
   clearDone: () =>
     set((state) => ({
-      jobs: state.jobs.filter((j) => j.status !== 'done')
+      jobs: state.jobs.filter((j) => j.status !== 'done' && j.status !== 'skipped')
     }))
 }))
 
@@ -38,9 +38,10 @@ export function initTransferListeners(): () => void {
     const handle = window.setTimeout(() => {
       refreshTimers.delete(path)
       const activeEnv = useEnvStore.getState().activeEnv
-      const { remotePath, loadRemote } = useFileStore.getState()
+      const { remotePath, refreshRemote } = useFileStore.getState()
       if (activeEnv && remotePath === path) {
-        void loadRemote(activeEnv.name, remotePath)
+        // Preserve the load-all choice across the post-upload refresh.
+        void refreshRemote()
       }
     }, 250)
     refreshTimers.set(path, handle)
@@ -50,13 +51,22 @@ export function initTransferListeners(): () => void {
     store.updateJob(jobId, { transferred, total, status: 'active' })
   })
 
-  const unsubDone = window.dw.on.filesDone(({ jobId, ok, error }) => {
-    store.updateJob(jobId, { status: ok ? 'done' : 'error', error })
-    if (!ok) return
-    const job = useTransferStore.getState().jobs.find((j) => j.id === jobId)
-    if (!job || job.direction !== 'upload') return
-    scheduleRemoteRefresh(job.remotePath)
-  })
+  const unsubDone = window.dw.on.filesDone(
+    ({ jobId, ok, error, uploaded, skipped, skippedNames }) => {
+      // An upload where the server wrote nothing and skipped existing files is
+      // reported as 'skipped' — not the misleading 'done' it used to show.
+      const status: TransferJob['status'] = !ok
+        ? 'error'
+        : (skipped ?? 0) > 0 && (uploaded ?? 0) === 0
+          ? 'skipped'
+          : 'done'
+      store.updateJob(jobId, { status, error, skippedNames })
+      if (!ok) return
+      const job = useTransferStore.getState().jobs.find((j) => j.id === jobId)
+      if (!job || job.direction !== 'upload') return
+      scheduleRemoteRefresh(job.remotePath)
+    }
+  )
 
   return () => {
     unsubProgress()

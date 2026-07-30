@@ -15,6 +15,9 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
   const [displayName, setDisplayName] = useState(env.displayName ?? env.name)
   const [host, setHost] = useState(`${env.protocol}://${env.host}`)
   const [localStartPath, setLocalStartPath] = useState(env.localStartPath ?? '')
+  const [listPageSize, setListPageSize] = useState(
+    env.listPageSize ? String(env.listPageSize) : ''
+  )
   const [saving, setSaving] = useState(false)
 
   // Auth — secrets (API key, client secret, password) are write-only and start
@@ -90,8 +93,14 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
   function buildEnv(): StoredEnv {
     const trimmedStart = localStartPath.trim()
     const trimmedDisplay = displayName.trim()
+    const parsedPageSize = Math.floor(Number(listPageSize.trim()))
+    const validPageSize =
+      listPageSize.trim() !== '' && Number.isFinite(parsedPageSize) && parsedPageSize > 0
+        ? parsedPageSize
+        : undefined
     return {
       ...env,
+      listPageSize: validPageSize,
       host: cleanHost(host),
       protocol: detectProtocol(host),
       authType: authTab,
@@ -350,6 +359,21 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
               </button>
             </div>
             <p style={hintStyle}>Leave empty to open your home folder.</p>
+          </div>
+          <div>
+            <label style={labelStyle}>Remote page size (optional)</label>
+            <input
+              style={inputStyle}
+              type="number"
+              min={1}
+              placeholder="500"
+              value={listPageSize}
+              onChange={(e) => setListPageSize(e.target.value)}
+            />
+            <p style={hintStyle}>
+              Entries loaded per remote folder page. Folders larger than this show a “load all”
+              prompt instead of loading eagerly. Leave empty for the default (500).
+            </p>
           </div>
 
           {/* Authentication */}
