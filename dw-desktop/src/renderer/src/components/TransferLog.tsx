@@ -4,7 +4,9 @@ export default function TransferLog(): React.JSX.Element {
   const jobs = useTransferStore((s) => s.jobs)
   const clearDone = useTransferStore((s) => s.clearDone)
 
-  const completed = jobs.filter((j) => j.status === 'done' || j.status === 'error')
+  const completed = jobs.filter(
+    (j) => j.status === 'done' || j.status === 'error' || j.status === 'skipped'
+  )
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -144,9 +146,20 @@ export default function TransferLog(): React.JSX.Element {
                   >
                     {job.localPath}
                   </td>
-                  <td style={{ padding: '6px 8px' }}>
+                  <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
                     {job.status === 'done' ? (
                       <span style={{ color: 'var(--success)' }}>✓ done</span>
+                    ) : job.status === 'skipped' ? (
+                      <span
+                        style={{ color: 'var(--warning)' }}
+                        title={
+                          job.skippedNames && job.skippedNames.length > 0
+                            ? `Already exists on remote — not overwritten:\n${job.skippedNames.join('\n')}`
+                            : 'Already exists on remote — not overwritten'
+                        }
+                      >
+                        ⤼ skipped (exists)
+                      </span>
                     ) : (
                       <span style={{ color: 'var(--danger)' }}>{job.error ?? 'error'}</span>
                     )}

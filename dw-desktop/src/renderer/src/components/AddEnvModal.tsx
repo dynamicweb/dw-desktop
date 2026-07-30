@@ -8,6 +8,7 @@ interface Step1Data {
   name: string
   host: string
   localStartPath: string
+  listPageSize: string
 }
 
 interface Step2Data {
@@ -52,7 +53,12 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
   const setActiveEnv = useEnvStore((s) => s.setActiveEnv)
 
   const [step, setStep] = useState(1)
-  const [step1, setStep1] = useState<Step1Data>({ name: '', host: '', localStartPath: '' })
+  const [step1, setStep1] = useState<Step1Data>({
+    name: '',
+    host: '',
+    localStartPath: '',
+    listPageSize: ''
+  })
   const [step2, setStep2] = useState<Step2Data>({
     authTab: 'oauth',
     apiKey: '',
@@ -92,12 +98,18 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
 
   function buildEnv(): StoredEnv {
     const trimmedStart = step1.localStartPath.trim()
+    const parsedPageSize = Math.floor(Number(step1.listPageSize.trim()))
+    const validPageSize =
+      step1.listPageSize.trim() !== '' && Number.isFinite(parsedPageSize) && parsedPageSize > 0
+        ? parsedPageSize
+        : undefined
     return {
       name: step1.name,
       host: cleanHost(step1.host),
       protocol: detectProtocol(step1.host),
       authType: step2.authTab === 'password' ? 'password' : step2.authTab,
-      ...(trimmedStart ? { localStartPath: trimmedStart } : {})
+      ...(trimmedStart ? { localStartPath: trimmedStart } : {}),
+      ...(validPageSize ? { listPageSize: validPageSize } : {})
     }
   }
 
@@ -355,6 +367,21 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
                 <p style={hintStyle}>
                   Leave empty to open your home folder. The app remembers where you last navigated
                   per environment.
+                </p>
+              </div>
+              <div>
+                <label style={labelStyle}>Remote page size (optional)</label>
+                <input
+                  style={inputStyle}
+                  type="number"
+                  min={1}
+                  placeholder="500"
+                  value={step1.listPageSize}
+                  onChange={(e) => setStep1((s) => ({ ...s, listPageSize: e.target.value }))}
+                />
+                <p style={hintStyle}>
+                  Entries loaded per remote folder page. Folders larger than this show a “load all”
+                  prompt. Leave empty for the default (500).
                 </p>
               </div>
             </div>

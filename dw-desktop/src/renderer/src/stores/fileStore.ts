@@ -33,6 +33,12 @@ interface FileState {
   remotePath: string
   remoteEnvName: string | null
   remoteError: string | null
+  /** True number of items in the current remote folder (server-reported). */
+  remoteTotalCount: number
+  /** True when the remote listing is a partial first page (more entries exist). */
+  remoteHasMore: boolean
+  /** True once the user has explicitly loaded the folder in full. */
+  remoteLoadedAll: boolean
   localEntries: FileEntry[]
   localPath: string
   selected: { pane: 'local' | 'remote'; paths: string[] }
@@ -40,6 +46,14 @@ interface FileState {
   diffMap: Map<string, DiffStatus>
   highlightedStatuses: DiffStatus[]
   loadRemote: (envName: string, path: string) => Promise<boolean>
+  loadAllRemote: () => Promise<boolean>
+  /**
+   * Re-fetch the current remote folder, preserving the load-all choice. Used for
+   * refreshes (after uploads, manual refresh, retry) so an auto-refresh doesn't
+   * silently collapse a "load all" view back to the first page. Navigating to a
+   * different folder still goes through loadRemote, which resets to page one.
+   */
+  refreshRemote: () => Promise<boolean>
   loadLocal: (path: string, envName?: string | null) => Promise<boolean>
   setSelected: (pane: 'local' | 'remote', paths: string[]) => void
   mirrorNav: boolean
@@ -62,6 +76,9 @@ export const useFileStore = create<FileState>((set, get) => ({
   remotePath: '/',
   remoteEnvName: null,
   remoteError: null,
+  remoteTotalCount: 0,
+  remoteHasMore: false,
+  remoteLoadedAll: false,
   localEntries: [],
   localPath: '',
   selected: { pane: 'local', paths: [] },
@@ -73,11 +90,15 @@ export const useFileStore = create<FileState>((set, get) => ({
   loadRemote: async (envName, path) => {
     const result = await window.dw.files.list(envName, path)
     if (result.ok) {
+      const listing = result.data
       set({
-        remoteEntries: result.data ?? [],
+        remoteEntries: listing?.entries ?? [],
         remotePath: path,
         remoteEnvName: envName,
-        remoteError: null
+        remoteError: null,
+        remoteTotalCount: listing?.totalCount ?? listing?.entries.length ?? 0,
+        remoteHasMore: listing?.hasMore ?? false,
+        remoteLoadedAll: false
       })
       persistRemote(envName, path)
       return true
@@ -89,8 +110,53 @@ export const useFileStore = create<FileState>((set, get) => ({
       remoteEntries: [],
       remotePath: path,
       remoteEnvName: envName,
-      remoteError: result.error ?? 'Could not load remote files.'
+      remoteError: result.error ?? 'Could not load remote files.',
+      remoteTotalCount: 0,
+      remoteHasMore: false,
+      remoteLoadedAll: false
     })
+    return false
+  },
+
+  // Fetch the current remote folder in full (all pages). Used by the "Load all"
+  // control shown when the listing is a partial first page.
+  loadAllRemote: async () => {
+    const { remoteEnvName, remotePath } = get()
+    if (!remoteEnvName) return false
+    const result = await window.dw.files.list(remoteEnvName, remotePath, true)
+    if (result.ok) {
+      const listing = result.data
+      set({
+        remoteEntries: listing?.entries ?? [],
+        remoteError: null,
+        remoteTotalCount: listing?.totalCount ?? listing?.entries.length ?? 0,
+        remoteHasMore: listing?.hasMore ?? false,
+        remoteLoadedAll: true
+      })
+      return true
+    }
+    set({ remoteError: result.error ?? 'Could not load all remote files.' })
+    return false
+  },
+
+  refreshRemote: async () => {
+    const { remoteEnvName, remotePath, remoteLoadedAll } = get()
+    if (!remoteEnvName) return false
+    // Re-list the current folder at the same depth the user is viewing: if they
+    // had loaded everything, keep loading everything; otherwise just the first
+    // page. remoteLoadedAll is deliberately preserved.
+    const result = await window.dw.files.list(remoteEnvName, remotePath, remoteLoadedAll)
+    if (result.ok) {
+      const listing = result.data
+      set({
+        remoteEntries: listing?.entries ?? [],
+        remoteError: null,
+        remoteTotalCount: listing?.totalCount ?? listing?.entries.length ?? 0,
+        remoteHasMore: listing?.hasMore ?? false
+      })
+      return true
+    }
+    set({ remoteError: result.error ?? 'Could not refresh remote files.' })
     return false
   },
 

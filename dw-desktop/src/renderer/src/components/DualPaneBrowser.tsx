@@ -41,6 +41,13 @@ function parentPath(path: string): string {
   return parent
 }
 
+// Last path segment, splitting on BOTH separators — a Windows path
+// (C:\a\b.txt) has no '/', so splitting on '/' alone returns the whole string
+// and never the file name.
+function baseName(p: string): string {
+  return p.split(/[/\\]/).pop() || p
+}
+
 function pathSegmentCount(p: string): number {
   return p.replace(/\\/g, '/').replace(/^\//, '').replace(/\/$/, '').split('/').filter(Boolean)
     .length
@@ -78,6 +85,9 @@ export default function DualPaneBrowser(): React.JSX.Element {
     remotePath,
     remoteEnvName,
     remoteError,
+    remoteTotalCount,
+    remoteHasMore,
+    remoteLoadedAll,
     localEntries,
     localPath,
     selected,
@@ -86,6 +96,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
     highlightedStatuses,
     mirrorNav,
     loadRemote,
+    loadAllRemote,
+    refreshRemote,
     loadLocal,
     setSelected,
     setCompareMode,
@@ -110,6 +122,13 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const [showAddEnv, setShowAddEnv] = useState(false)
   const [conflictCount, setConflictCount] = useState(0)
   const [overwrite, setOverwrite] = useState(false)
+  const [loadingAll, setLoadingAll] = useState(false)
+  const [pendingUpload, setPendingUpload] = useState<{
+    localPaths: string[]
+    targetRemotePath: string
+    conflicts: number
+    total: number
+  } | null>(null)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const [splitRatio, setSplitRatio] = useState<number>(() => {
@@ -194,10 +213,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
       return
     }
     const remoteNames = new Set(remoteEntries.map((e) => e.name))
-    const conflicts = selected.paths.filter((p) => {
-      const name = p.split('/').pop() ?? p.split('\\').pop() ?? p
-      return remoteNames.has(name)
-    })
+    const conflicts = selected.paths.filter((p) => remoteNames.has(baseName(p)))
     setConflictCount(conflicts.length)
   }, [selected, remoteEntries])
 
@@ -211,12 +227,25 @@ export default function DualPaneBrowser(): React.JSX.Element {
       setDiffMap(new Map())
       return
     }
-    if (compareMode === 'on' || tailsMatch) {
-      setDiffMap(compareEntries(localEntries, remoteEntries))
-    } else {
+    // A partial remote listing (only the first page loaded) would produce
+    // misleading diffs — every unloaded remote file makes its local counterpart
+    // look "local-only". Suppress comparison until the folder is fully loaded;
+    // the remote-pane banner tells the user why and offers "Load all".
+    if (remoteHasMore) {
       setDiffMap(new Map())
+      return
     }
-  }, [compareMode, localEntries, remoteEntries, localPath, remotePath, setDiffMap])
+    // 'auto' = match-only: compare only when the two panes' folder paths line up.
+    // 'on' = compare whatever is in the panes regardless of paths (comparing
+    // different folder structures is a valid use case; it just surfaces more
+    // local-only/remote-only entries). Folder-path matching otherwise gates only
+    // mirror navigation, not comparison.
+    if (compareMode === 'auto' && !tailsMatch) {
+      setDiffMap(new Map())
+      return
+    }
+    setDiffMap(compareEntries(localEntries, remoteEntries))
+  }, [compareMode, localEntries, remoteEntries, localPath, remotePath, remoteHasMore, setDiffMap])
 
   const mirrorActiveRef = useRef(false)
   useEffect(() => {
@@ -408,6 +437,30 @@ export default function DualPaneBrowser(): React.JSX.Element {
     }
   }
 
+  function startUpload(
+    localPaths: string[],
+    targetRemotePath: string,
+    overwriteFiles: boolean
+  ): void {
+    if (!activeEnv) return
+    const batchId = nanoid()
+    for (const p of localPaths) {
+      const jobId = nanoid()
+      addJob({
+        id: jobId,
+        batchId,
+        direction: 'upload',
+        label: baseName(p),
+        remotePath: targetRemotePath,
+        localPath: p,
+        status: 'queued',
+        transferred: 0,
+        total: 1
+      })
+      window.dw.files.upload(activeEnv.name, [p], targetRemotePath, overwriteFiles, jobId)
+    }
+  }
+
   async function handleUpload(localPaths: string[], targetRemotePath: string): Promise<void> {
     if (!activeEnv) return
     if (targetRemotePath === '/' || targetRemotePath === '') {
@@ -417,23 +470,29 @@ export default function DualPaneBrowser(): React.JSX.Element {
       )
       return
     }
-    const batchId = nanoid()
-    for (const p of localPaths) {
-      const jobId = nanoid()
-      const label = p.split('/').pop() ?? p.split('\\').pop() ?? p
-      addJob({
-        id: jobId,
-        batchId,
-        direction: 'upload',
-        label,
-        remotePath: targetRemotePath,
-        localPath: p,
-        status: 'queued',
-        transferred: 0,
-        total: 1
-      })
-      window.dw.files.upload(activeEnv.name, [p], targetRemotePath, overwrite, jobId)
+    // We can only detect name conflicts when dropping into the folder currently
+    // shown in the remote pane AND it's fully loaded. Otherwise (a subfolder
+    // drop, or a partially-loaded folder) we can't see what's there \u2014 default to
+    // overwrite so updates land instead of being silently skipped.
+    const canDetect = targetRemotePath === remotePath && !remoteHasMore
+    if (canDetect) {
+      const remoteNames = new Set(remoteEntries.map((e) => e.name))
+      const conflicts = localPaths.filter((p) => remoteNames.has(baseName(p)))
+      if (conflicts.length > 0) {
+        // Ask before overwriting \u2014 most uploads mean to update, so Replace is the
+        // default, but skipping (and cancelling) stays available.
+        setPendingUpload({
+          localPaths,
+          targetRemotePath,
+          conflicts: conflicts.length,
+          total: localPaths.length
+        })
+        return
+      }
+      startUpload(localPaths, targetRemotePath, false) // nothing to overwrite
+      return
     }
+    startUpload(localPaths, targetRemotePath, true)
   }
 
   async function handleDownload(remotePaths: string[]): Promise<void> {
@@ -596,6 +655,87 @@ export default function DualPaneBrowser(): React.JSX.Element {
           onMatchRemoteToLocal={matchRemoteToLocal}
           onMatchLocalToRemote={matchLocalToRemote}
           isLoading={localLoading || remoteLoading}
+          rightSlot={
+            remoteHasMore || remoteLoadedAll ? (
+              remoteHasMore ? (
+                <>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--text-muted)',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      minWidth: 0
+                    }}
+                    title={`Uploads here overwrite matching files${compareMode !== 'off' ? '. Compare is paused until all items load.' : '.'}`}
+                  >
+                    Showing first {remoteEntries.length.toLocaleString()} of{' '}
+                    {remoteTotalCount.toLocaleString()} ·{' '}
+                    <span style={{ color: 'var(--warning)' }}>uploads overwrite</span>
+                    {compareMode !== 'off' ? ' · compare paused' : ''}
+                  </span>
+                  <button
+                    type="button"
+                    className="toolbar-btn"
+                    disabled={loadingAll}
+                    onClick={() => {
+                      setLoadingAll(true)
+                      void loadAllRemote().finally(() => setLoadingAll(false))
+                    }}
+                    style={{
+                      flexShrink: 0,
+                      height: 22,
+                      padding: '0 8px',
+                      fontSize: 10,
+                      borderRadius: 'var(--r-sm)',
+                      border: '1px solid var(--border-strong)',
+                      background: 'var(--surface-raised)',
+                      color: 'var(--text)',
+                      cursor: loadingAll ? 'default' : 'pointer',
+                      opacity: loadingAll ? 0.6 : 1,
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {loadingAll ? 'Loading…' : `Load all ${remoteTotalCount.toLocaleString()}`}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span
+                    style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
+                    title="Large folders may be slow to render."
+                  >
+                    Showing all {remoteTotalCount.toLocaleString()} items
+                  </span>
+                  <button
+                    type="button"
+                    className="toolbar-btn"
+                    onClick={() => {
+                      setRemoteLoading(true)
+                      void loadRemote(activeEnv.name, remotePath).finally(() =>
+                        setRemoteLoading(false)
+                      )
+                    }}
+                    style={{
+                      flexShrink: 0,
+                      height: 22,
+                      padding: '0 8px',
+                      fontSize: 10,
+                      borderRadius: 'var(--r-sm)',
+                      border: '1px solid var(--border-strong)',
+                      background: 'var(--surface-raised)',
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    Show first page only
+                  </button>
+                </>
+              )
+            ) : null
+          }
         />
       )}
       <div ref={containerRef} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -888,7 +1028,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
                 }}
                 onRefresh={() => {
                   setRemoteLoading(true)
-                  void loadRemote(activeEnv.name, remotePath).finally(() => setRemoteLoading(false))
+                  void refreshRemote().finally(() => setRemoteLoading(false))
                   if (mirrorNav && pathsMatch) void loadLocal(localPath)
                 }}
                 onNavigateTo={(displayPath) => {
@@ -942,9 +1082,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
                     type="button"
                     onClick={() => {
                       setRemoteLoading(true)
-                      void loadRemote(activeEnv.name, remotePath).finally(() =>
-                        setRemoteLoading(false)
-                      )
+                      void refreshRemote().finally(() => setRemoteLoading(false))
                     }}
                     style={{
                       flexShrink: 0,
@@ -1048,6 +1186,100 @@ export default function DualPaneBrowser(): React.JSX.Element {
             />
           )
         })()}
+
+      {pendingUpload && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}
+          onClick={() => setPendingUpload(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--r-sm)',
+              padding: 20,
+              width: 440,
+              maxWidth: '90%',
+              boxShadow: '0 12px 40px rgba(0,0,0,0.4)'
+            }}
+          >
+            <p style={{ fontSize: 13, color: 'var(--text)', margin: '0 0 8px' }}>
+              {pendingUpload.conflicts} of {pendingUpload.total}{' '}
+              {pendingUpload.total === 1 ? 'file' : 'files'} already{' '}
+              {pendingUpload.conflicts === 1 ? 'exists' : 'exist'} in this folder.
+            </p>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
+              Replace the existing {pendingUpload.conflicts === 1 ? 'file' : 'files'}, or skip and
+              upload only new files?
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setPendingUpload(null)}
+                style={{
+                  fontSize: 12,
+                  padding: '6px 12px',
+                  borderRadius: 'var(--r-sm)',
+                  border: '1px solid var(--border-strong)',
+                  background: 'transparent',
+                  color: 'var(--text-subtle)',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const p = pendingUpload
+                  setPendingUpload(null)
+                  startUpload(p.localPaths, p.targetRemotePath, false)
+                }}
+                style={{
+                  fontSize: 12,
+                  padding: '6px 12px',
+                  borderRadius: 'var(--r-sm)',
+                  border: '1px solid var(--border-strong)',
+                  background: 'var(--surface-raised)',
+                  color: 'var(--text)',
+                  cursor: 'pointer'
+                }}
+              >
+                Skip existing
+              </button>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => {
+                  const p = pendingUpload
+                  setPendingUpload(null)
+                  startUpload(p.localPaths, p.targetRemotePath, true)
+                }}
+                style={{
+                  fontSize: 12,
+                  padding: '6px 12px',
+                  borderRadius: 'var(--r-sm)',
+                  border: '1px solid var(--accent)',
+                  background: 'var(--accent)',
+                  color: '#fff',
+                  cursor: 'pointer'
+                }}
+              >
+                Replace all
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

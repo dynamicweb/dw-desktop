@@ -4,6 +4,7 @@ import type {
   FileEntry,
   IPCResult,
   PaneState,
+  RemoteListing,
   StoredEnv,
   ThemeMode
 } from '../shared/types'
@@ -19,6 +20,9 @@ export interface DonePayload {
   jobId: string
   ok: boolean
   error?: string
+  uploaded?: number
+  skipped?: number
+  skippedNames?: string[]
 }
 
 export interface DWDesktopAPI {
@@ -37,7 +41,7 @@ export interface DWDesktopAPI {
     getHints(envName: string): Promise<IPCResult<CredentialHints>>
   }
   files: {
-    list(envName: string, path: string): Promise<IPCResult<FileEntry[]>>
+    list(envName: string, path: string, loadAll?: boolean): Promise<IPCResult<RemoteListing>>
     upload(
       envName: string,
       localPaths: string[],
