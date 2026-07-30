@@ -68,41 +68,60 @@ async function collectDirectoryFiles(
 
 const BATCH_SIZE = 300
 
+// DW's AssetsByDirectory endpoint pages its results. The page-size query
+// parameter is `PagingSize` (capital P/S) — the lowercase `pageSize` we used to
+// send is silently ignored, so the server fell back to its default page size of
+// 96 and truncated any folder with more entries. We request a large page and
+// then walk any remaining pages via `PagingIndex` so folders are returned in
+// full. MAX_PAGES is a safety valve against a misbehaving totalPages.
+const LIST_PAGE_SIZE = 500
+const LIST_MAX_PAGES = 100
+
 export async function listFiles(env: StoredEnv, path: string): Promise<IPCResult<FileEntry[]>> {
   try {
     const authHeader = await resolveAuthHeader(env)
     const apiPath = toApiPath(path)
     const virtualBase = normalizeRemotePath(path)
-    const url = `${baseUrl(env)}/Admin/Api/AssetsByDirectory?DirectoryPath=${encodeURIComponent(apiPath)}&IncludeFolders=true&RecursiveSearch=false&pageSize=500`
-    const dbEntry = debugRequest('GET', url)
-    const response = await fetch(url, { headers: { Authorization: authHeader } })
-    const bodyText = await response.text()
-    debugResponse(
-      dbEntry,
-      response.status,
-      (() => {
-        try {
-          return JSON.stringify(JSON.parse(bodyText), null, 2).slice(0, 4000)
-        } catch {
-          return bodyText.slice(0, 4000)
-        }
-      })()
-    )
-    if (!response.ok)
-      return {
-        ok: false,
-        error: humanizeAuthError(
-          `Server returned ${response.status}: ${bodyText.slice(0, 200)}`,
-          env
-        )
-      }
 
-    const payload = JSON.parse(bodyText) as {
-      model?: {
-        data?: Record<string, unknown>[]
+    const items: Record<string, unknown>[] = []
+    let pageIndex = 1
+    let totalPages = 1
+
+    do {
+      const url = `${baseUrl(env)}/Admin/Api/AssetsByDirectory?DirectoryPath=${encodeURIComponent(apiPath)}&IncludeFolders=true&RecursiveSearch=false&PagingSize=${LIST_PAGE_SIZE}&PagingIndex=${pageIndex}`
+      const dbEntry = debugRequest('GET', url)
+      const response = await fetch(url, { headers: { Authorization: authHeader } })
+      const bodyText = await response.text()
+      debugResponse(
+        dbEntry,
+        response.status,
+        (() => {
+          try {
+            return JSON.stringify(JSON.parse(bodyText), null, 2).slice(0, 4000)
+          } catch {
+            return bodyText.slice(0, 4000)
+          }
+        })()
+      )
+      if (!response.ok)
+        return {
+          ok: false,
+          error: humanizeAuthError(
+            `Server returned ${response.status}: ${bodyText.slice(0, 200)}`,
+            env
+          )
+        }
+
+      const payload = JSON.parse(bodyText) as {
+        model?: {
+          data?: Record<string, unknown>[]
+          totalPages?: number
+        }
       }
-    }
-    const items = payload.model?.data ?? []
+      items.push(...(payload.model?.data ?? []))
+      totalPages = typeof payload.model?.totalPages === 'number' ? payload.model.totalPages : 1
+      pageIndex += 1
+    } while (pageIndex <= totalPages && pageIndex <= LIST_MAX_PAGES)
 
     const entries: FileEntry[] = items.map((item) => {
       const name = String(item['name'] ?? item['Name'] ?? '')
