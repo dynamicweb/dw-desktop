@@ -75,6 +75,40 @@ describe('dw-api', () => {
     })
   })
 
+  it('listFiles walks every page via PagingSize/PagingIndex and concatenates them', async () => {
+    const page = (names: string[], totalPages: number): Response =>
+      ({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            model: {
+              totalPages,
+              data: names.map((n) => ({ name: n, sizeInBytes: 10 }))
+            }
+          })
+      }) as Response
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(page(['a.txt', 'b.txt'], 3))
+      .mockResolvedValueOnce(page(['c.txt', 'd.txt'], 3))
+      .mockResolvedValueOnce(page(['e.txt'], 3))
+
+    const result = await listFiles(env, '/Images')
+
+    expect(result.ok).toBe(true)
+    expect(result.data).toHaveLength(5)
+    expect(result.data!.map((e) => e.name)).toEqual(['a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.txt'])
+    expect(fetch).toHaveBeenCalledTimes(3)
+
+    const urls = vi.mocked(fetch).mock.calls.map((c) => String(c[0]))
+    // Correct (capitalized) paging params — not the silently-ignored `pageSize`.
+    expect(urls[0]).toContain('PagingSize=500')
+    expect(urls[0]).not.toContain('pageSize=')
+    expect(urls[0]).toContain('PagingIndex=1')
+    expect(urls[1]).toContain('PagingIndex=2')
+    expect(urls[2]).toContain('PagingIndex=3')
+  })
+
   it('listFiles returns error on non-ok response', async () => {
     vi.mocked(fetch).mockResolvedValue({
       ok: false,
