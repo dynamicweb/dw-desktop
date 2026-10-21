@@ -4,7 +4,7 @@ import { basename, dirname, join, relative } from 'path'
 import AdmZip from 'adm-zip'
 import { resolveAuthHeader } from './auth'
 import { humanizeAuthError } from '../shared/authErrors'
-import type { FileEntry, IPCResult, StoredEnv } from '../shared/types'
+import type { FileEntry, IPCResult, RemoteListing, StoredEnv, UploadOutcome } from '../shared/types'
 
 import { debugRequest, debugResponse } from './debug'
 
@@ -68,58 +68,121 @@ async function collectDirectoryFiles(
 
 const BATCH_SIZE = 300
 
-export async function listFiles(env: StoredEnv, path: string): Promise<IPCResult<FileEntry[]>> {
+// DW's AssetsByDirectory endpoint pages its results. The page-size query
+// parameter is `PagingSize` (capital P/S) — the lowercase `pageSize` we used to
+// send was silently ignored, so the server fell back to its default page size
+// of 96 and truncated larger folders. We request a full page and surface the
+// server's true `totalCount` so the UI can offer an explicit "load all" for
+// folders bigger than one page, rather than eagerly fetching everything.
+// Default entries fetched per page when listing a remote folder. Overridable
+// per environment via `StoredEnv.listPageSize`. LIST_MAX_PAGES bounds the
+// "load all" walk so a bad server `totalPages` can't loop unbounded.
+const DEFAULT_LIST_PAGE_SIZE = 500
+const LIST_MAX_PAGES = 100
+
+function resolvePageSize(env: StoredEnv): number {
+  return typeof env.listPageSize === 'number' && env.listPageSize > 0
+    ? Math.floor(env.listPageSize)
+    : DEFAULT_LIST_PAGE_SIZE
+}
+
+function mapAssetEntry(item: Record<string, unknown>, virtualBase: string): FileEntry {
+  const name = String(item['name'] ?? item['Name'] ?? '')
+  // Detect directories: the API returns sizeInBytes as null for folders
+  const sizeInBytes = typeof item['sizeInBytes'] === 'number' ? item['sizeInBytes'] : null
+  const isDir = sizeInBytes === null || (sizeInBytes === 0 && !name.includes('.'))
+  const virtualPath = virtualBase === '/' ? `/${name}` : `${virtualBase}/${name}`
+  return {
+    name,
+    path: virtualPath,
+    type: isDir ? ('directory' as const) : ('file' as const),
+    size: isDir ? undefined : (sizeInBytes ?? undefined),
+    modified: typeof item['updatedAt'] === 'string' ? item['updatedAt'] : undefined
+  }
+}
+
+interface AssetPage {
+  items: Record<string, unknown>[]
+  totalCount: number
+  totalPages: number
+}
+
+async function fetchAssetPage(
+  env: StoredEnv,
+  authHeader: string,
+  apiPath: string,
+  pageIndex: number,
+  pageSize: number
+): Promise<IPCResult<AssetPage>> {
+  const url = `${baseUrl(env)}/Admin/Api/AssetsByDirectory?DirectoryPath=${encodeURIComponent(apiPath)}&IncludeFolders=true&RecursiveSearch=false&PagingSize=${pageSize}&PagingIndex=${pageIndex}`
+  const dbEntry = debugRequest('GET', url)
+  const response = await fetch(url, { headers: { Authorization: authHeader } })
+  const bodyText = await response.text()
+  debugResponse(
+    dbEntry,
+    response.status,
+    (() => {
+      try {
+        return JSON.stringify(JSON.parse(bodyText), null, 2).slice(0, 4000)
+      } catch {
+        return bodyText.slice(0, 4000)
+      }
+    })()
+  )
+  if (!response.ok)
+    return {
+      ok: false,
+      error: humanizeAuthError(`Server returned ${response.status}: ${bodyText.slice(0, 200)}`, env)
+    }
+  const payload = JSON.parse(bodyText) as {
+    model?: { data?: Record<string, unknown>[]; totalCount?: number; totalPages?: number }
+  }
+  const items = payload.model?.data ?? []
+  return {
+    ok: true,
+    data: {
+      items,
+      totalCount:
+        typeof payload.model?.totalCount === 'number' ? payload.model.totalCount : items.length,
+      totalPages: typeof payload.model?.totalPages === 'number' ? payload.model.totalPages : 1
+    }
+  }
+}
+
+/**
+ * Lists a remote directory. By default only the first page (`LIST_PAGE_SIZE`)
+ * is fetched and `hasMore` reports whether the folder holds more entries; pass
+ * `loadAll` to walk every page (bounded by `LIST_MAX_PAGES`) for folders the
+ * user has explicitly chosen to load in full.
+ */
+export async function listFiles(
+  env: StoredEnv,
+  path: string,
+  loadAll = false
+): Promise<IPCResult<RemoteListing>> {
   try {
     const authHeader = await resolveAuthHeader(env)
     const apiPath = toApiPath(path)
     const virtualBase = normalizeRemotePath(path)
-    const url = `${baseUrl(env)}/Admin/Api/AssetsByDirectory?DirectoryPath=${encodeURIComponent(apiPath)}&IncludeFolders=true&RecursiveSearch=false&pageSize=500`
-    const dbEntry = debugRequest('GET', url)
-    const response = await fetch(url, { headers: { Authorization: authHeader } })
-    const bodyText = await response.text()
-    debugResponse(
-      dbEntry,
-      response.status,
-      (() => {
-        try {
-          return JSON.stringify(JSON.parse(bodyText), null, 2).slice(0, 4000)
-        } catch {
-          return bodyText.slice(0, 4000)
-        }
-      })()
-    )
-    if (!response.ok)
-      return {
-        ok: false,
-        error: humanizeAuthError(
-          `Server returned ${response.status}: ${bodyText.slice(0, 200)}`,
-          env
-        )
-      }
+    const pageSize = resolvePageSize(env)
 
-    const payload = JSON.parse(bodyText) as {
-      model?: {
-        data?: Record<string, unknown>[]
-      }
-    }
-    const items = payload.model?.data ?? []
+    const items: Record<string, unknown>[] = []
+    let pageIndex = 1
+    let totalPages = 1
+    let totalCount = 0
 
-    const entries: FileEntry[] = items.map((item) => {
-      const name = String(item['name'] ?? item['Name'] ?? '')
-      // Detect directories: the API returns sizeInBytes as null for folders
-      const sizeInBytes = typeof item['sizeInBytes'] === 'number' ? item['sizeInBytes'] : null
-      const isDir = sizeInBytes === null || (sizeInBytes === 0 && !name.includes('.'))
-      const virtualPath = virtualBase === '/' ? `/${name}` : `${virtualBase}/${name}`
-      return {
-        name,
-        path: virtualPath,
-        type: isDir ? ('directory' as const) : ('file' as const),
-        size: isDir ? undefined : (sizeInBytes ?? undefined),
-        modified: typeof item['updatedAt'] === 'string' ? item['updatedAt'] : undefined
-      }
-    })
+    do {
+      const page = await fetchAssetPage(env, authHeader, apiPath, pageIndex, pageSize)
+      if (!page.ok) return { ok: false, error: page.error }
+      items.push(...page.data!.items)
+      totalCount = page.data!.totalCount
+      totalPages = page.data!.totalPages
+      pageIndex += 1
+      if (!loadAll) break
+    } while (pageIndex <= totalPages && pageIndex <= LIST_MAX_PAGES)
 
-    return { ok: true, data: entries }
+    const entries = items.map((item) => mapAssetEntry(item, virtualBase))
+    return { ok: true, data: { entries, totalCount, hasMore: entries.length < totalCount } }
   } catch (err) {
     return { ok: false, error: humanizeAuthError((err as Error).message, env) }
   }
@@ -131,12 +194,14 @@ export async function uploadFiles(
   remotePath: string,
   overwrite: boolean,
   onProgress: (transferred: number, total: number, currentFile: string) => void
-): Promise<IPCResult> {
+): Promise<IPCResult<UploadOutcome>> {
   try {
     const authHeader = await resolveAuthHeader(env)
     const allFiles = await collectLocalFiles(localPaths)
     const totalBytes = allFiles.reduce((sum, f) => sum + f.size, 0)
     let transferred = 0
+    let uploadedCount = 0
+    const skippedNames: string[] = []
 
     const uploadUrl = `${baseUrl(env)}/Admin/Api/Upload?createMissingDirectories=true&createEmptyFiles=false`
     const remoteApiBase = normalizeRemotePath(remotePath).replace(/^\//, '')
@@ -221,10 +286,36 @@ export async function uploadFiles(
             ok: false,
             error: `Upload failed with status ${response.status}: ${bodyText.slice(0, 200)}`
           }
+
+        // The Upload endpoint returns `model` = the list of paths it actually
+        // wrote. A file that already existed and was skipped (overwrite off)
+        // is simply absent from `model`, so we diff the batch against it to
+        // report skips honestly instead of reporting every 200 as success.
+        let writtenBasenames: Set<string>
+        try {
+          const parsed = JSON.parse(bodyText) as { model?: unknown }
+          if (Array.isArray(parsed.model)) {
+            writtenBasenames = new Set(
+              parsed.model
+                .filter((m): m is string => typeof m === 'string')
+                .map((m) => basename(m))
+            )
+          } else {
+            // Unexpected shape — assume everything was written rather than
+            // falsely reporting skips.
+            writtenBasenames = new Set(batch.map((f) => basename(f.remoteRelativePath)))
+          }
+        } catch {
+          writtenBasenames = new Set(batch.map((f) => basename(f.remoteRelativePath)))
+        }
+        for (const file of batch) {
+          if (writtenBasenames.has(basename(file.remoteRelativePath))) uploadedCount += 1
+          else skippedNames.push(file.remoteRelativePath)
+        }
       }
     }
 
-    return { ok: true }
+    return { ok: true, data: { uploaded: uploadedCount, skipped: skippedNames.length, skippedNames } }
   } catch (err) {
     return { ok: false, error: (err as Error).message }
   }

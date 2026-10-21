@@ -9,6 +9,7 @@ interface Batch {
   jobs: TransferJob[]
   activeCount: number
   doneCount: number
+  skippedCount: number
   errorCount: number
   totalCount: number
   transferred: number
@@ -29,6 +30,7 @@ function groupBatches(jobs: TransferJob[]): Batch[] {
         jobs: [],
         activeCount: 0,
         doneCount: 0,
+        skippedCount: 0,
         errorCount: 0,
         totalCount: 0,
         transferred: 0,
@@ -43,12 +45,15 @@ function groupBatches(jobs: TransferJob[]): Batch[] {
     b.total += job.total
     if (job.status === 'error') b.errorCount++
     else if (job.status === 'done') b.doneCount++
+    else if (job.status === 'skipped') b.skippedCount++
     else if (job.status === 'active' || job.status === 'queued') b.activeCount++
   }
   for (const b of byBatch.values()) {
     if (b.errorCount > 0 && b.activeCount === 0) b.status = 'error'
     else if (b.activeCount > 0) b.status = 'active'
-    else if (b.doneCount === b.totalCount) b.status = 'done'
+    // A skipped file (already existed, not overwritten) is a resolved outcome,
+    // so a batch of done + skipped jobs is complete — not stuck.
+    else if (b.doneCount + b.skippedCount === b.totalCount) b.status = 'done'
     else b.status = 'queued'
   }
   return Array.from(byBatch.values())
@@ -85,12 +90,14 @@ function ProgressBar({
   transferred,
   total,
   status,
-  errored
+  errored,
+  skipped
 }: {
   transferred: number
   total: number
   status: string
   errored: boolean
+  skipped: boolean
 }): React.JSX.Element {
   const p = pct(transferred, total)
   return (
@@ -106,12 +113,14 @@ function ProgressBar({
         className={status === 'active' && !errored ? 'transfer-bar-active' : undefined}
         style={{
           height: '100%',
-          width: errored ? '100%' : `${p}%`,
+          width: errored || skipped || status === 'done' ? '100%' : `${p}%`,
           background: errored
             ? 'var(--danger)'
-            : status === 'done'
-              ? 'var(--success)'
-              : 'var(--accent)',
+            : skipped
+              ? 'var(--warning)'
+              : status === 'done'
+                ? 'var(--success)'
+                : 'var(--accent)',
           transition: 'width 300ms ease'
         }}
       />
@@ -297,6 +306,7 @@ export default function TransferQueue(): React.JSX.Element {
                   <div style={{ width: 70, flexShrink: 0 }}>
                     <ProgressBar
                       errored={errored}
+                      skipped={batch.totalCount > 0 && batch.skippedCount === batch.totalCount}
                       status={batch.status}
                       total={batch.total}
                       transferred={batch.transferred}
@@ -306,15 +316,20 @@ export default function TransferQueue(): React.JSX.Element {
                     style={{
                       fontSize: 10,
                       color: errored ? 'var(--danger)' : 'var(--text-muted)',
-                      width: 44,
+                      width: 92,
                       textAlign: 'right',
+                      whiteSpace: 'nowrap',
                       flexShrink: 0
                     }}
                   >
                     {errored
                       ? `\u2715 ${batch.errorCount}`
                       : batch.status === 'done'
-                        ? '\u2713 done'
+                        ? batch.skippedCount === batch.totalCount
+                          ? '\u2933 skipped'
+                          : batch.skippedCount > 0
+                            ? `\u2713 ${batch.doneCount} \u00b7 ${batch.skippedCount} skipped`
+                            : '\u2713 done'
                         : `${pct(batch.transferred, batch.total)}%`}
                   </span>
                 </div>
@@ -345,7 +360,9 @@ export default function TransferQueue(): React.JSX.Element {
                                 ? 'var(--danger)'
                                 : job.status === 'done'
                                   ? 'var(--success)'
-                                  : 'var(--accent)',
+                                  : job.status === 'skipped'
+                                    ? 'var(--warning)'
+                                    : 'var(--accent)',
                               flexShrink: 0
                             }}
                           />
@@ -373,9 +390,11 @@ export default function TransferQueue(): React.JSX.Element {
                               ? '\u2715 error'
                               : job.status === 'done'
                                 ? '\u2713'
-                                : job.status === 'active'
-                                  ? `${pct(job.transferred, job.total)}%`
-                                  : 'queued'}
+                                : job.status === 'skipped'
+                                  ? '\u2933 skipped'
+                                  : job.status === 'active'
+                                    ? `${pct(job.transferred, job.total)}%`
+                                    : 'queued'}
                           </span>
                         </div>
                       )

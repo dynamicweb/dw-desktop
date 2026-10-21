@@ -64,11 +64,17 @@ async function listWindowsDrives(): Promise<FileEntry[]> {
 }
 
 export function registerFileHandlers(): void {
-  ipcMain.handle('files:list', async (_event, { envName, path }: { envName: string; path: string }) => {
-    const result = getEnvOrError(envName)
-    if ('ok' in result) return result
-    return listFiles(result.env, path)
-  })
+  ipcMain.handle(
+    'files:list',
+    async (
+      _event,
+      { envName, path, loadAll }: { envName: string; path: string; loadAll?: boolean }
+    ) => {
+      const result = getEnvOrError(envName)
+      if ('ok' in result) return result
+      return listFiles(result.env, path, loadAll ?? false)
+    }
+  )
 
   ipcMain.handle('files:delete', async (_event, { envName, path }: { envName: string; path: string }) => {
     const result = getEnvOrError(envName)
@@ -126,7 +132,14 @@ export function registerFileHandlers(): void {
         event.sender.send('files:progress', { jobId, transferred, total, currentFile })
       })
         .then((uploadResult) => {
-          event.sender.send('files:done', { jobId, ok: uploadResult.ok, error: uploadResult.error })
+          event.sender.send('files:done', {
+            jobId,
+            ok: uploadResult.ok,
+            error: uploadResult.error,
+            uploaded: uploadResult.data?.uploaded,
+            skipped: uploadResult.data?.skipped,
+            skippedNames: uploadResult.data?.skippedNames
+          })
         })
         .catch((err: Error) => {
           event.sender.send('files:done', { jobId, ok: false, error: err.message })

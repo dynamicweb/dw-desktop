@@ -12,6 +12,21 @@ vi.mock('fs/promises', () => ({
   stat: vi.fn()
 }))
 
+// Preserve real `fs` but stub createReadStream to yield one chunk so uploadFiles
+// can be exercised without touching the disk.
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>()
+  return {
+    ...actual,
+    createReadStream: () => {
+      async function* gen(): AsyncGenerator<Buffer> {
+        yield Buffer.from('data')
+      }
+      return gen()
+    }
+  }
+})
+
 vi.mock('adm-zip', () => ({
   default: class MockAdmZip {
     constructor(buffer: Buffer) {
@@ -30,7 +45,8 @@ vi.mock('./auth', () => ({
   resolveAuthHeader: vi.fn().mockResolvedValue('Bearer test-key')
 }))
 
-import { listFiles, downloadFile } from './dw-api'
+import { stat } from 'fs/promises'
+import { listFiles, downloadFile, uploadFiles } from './dw-api'
 import type { StoredEnv } from '../shared/types'
 
 const env: StoredEnv = {
@@ -65,14 +81,66 @@ describe('dw-api', () => {
 
     expect(fetch).toHaveBeenCalledOnce()
     expect(result.ok).toBe(true)
-    expect(result.data).toHaveLength(2)
-    expect(result.data![0]).toMatchObject({ name: 'Images', type: 'directory', path: '/Images' })
-    expect(result.data![1]).toMatchObject({
+    expect(result.data!.entries).toHaveLength(2)
+    expect(result.data!.hasMore).toBe(false)
+    expect(result.data!.entries[0]).toMatchObject({
+      name: 'Images',
+      type: 'directory',
+      path: '/Images'
+    })
+    expect(result.data!.entries[1]).toMatchObject({
       name: 'README.txt',
       type: 'file',
       size: 128,
       path: '/README.txt'
     })
+  })
+
+  it('listFiles loads only the first page by default and reports hasMore', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          model: {
+            totalCount: 287,
+            totalPages: 2,
+            data: [{ name: 'a.png', sizeInBytes: 10 }]
+          }
+        })
+    } as Response)
+
+    const result = await listFiles(env, '/Images')
+
+    expect(fetch).toHaveBeenCalledOnce() // default: first page only, no walk
+    expect(result.ok).toBe(true)
+    expect(result.data!.totalCount).toBe(287)
+    expect(result.data!.hasMore).toBe(true)
+    const url = String(vi.mocked(fetch).mock.calls[0][0])
+    expect(url).toContain('PagingSize=')
+    expect(url).not.toContain('pageSize=') // the old, silently-ignored param
+    expect(url).toContain('PagingIndex=1')
+  })
+
+  it('listFiles(loadAll) walks every page and clears hasMore', async () => {
+    const page = (names: string[], totalCount: number, totalPages: number): Response =>
+      ({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            model: { totalCount, totalPages, data: names.map((n) => ({ name: n, sizeInBytes: 5 })) }
+          })
+      }) as Response
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(page(['a', 'b'], 3, 2))
+      .mockResolvedValueOnce(page(['c'], 3, 2))
+
+    const result = await listFiles(env, '/Images', true)
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(result.data!.entries.map((e) => e.name)).toEqual(['a', 'b', 'c'])
+    expect(result.data!.hasMore).toBe(false)
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toContain('PagingIndex=2')
   })
 
   it('listFiles returns error on non-ok response', async () => {
@@ -107,5 +175,33 @@ describe('dw-api', () => {
     const wrappedPath = expect.stringMatching(/[\\/]tmp[\\/]downloads[\\/]Files$/)
     expect(mkdirMock).toHaveBeenCalledWith(wrappedPath, { recursive: true })
     expect(extractAllToMock).toHaveBeenCalledWith(wrappedPath, true)
+  })
+
+  it('uploadFiles reports files the server skipped (absent from response model)', async () => {
+    // Both inputs are plain files.
+    vi.mocked(stat).mockResolvedValue({
+      isDirectory: () => false,
+      size: 4
+    } as unknown as Awaited<ReturnType<typeof stat>>)
+
+    // Server wrote only new.txt; old.txt already existed and was skipped, so it
+    // is absent from `model`.
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ status: 'ok', model: ['/Files/x/new.txt'] })
+    } as Response)
+
+    const result = await uploadFiles(
+      env,
+      ['/local/new.txt', '/local/old.txt'],
+      '/x',
+      false,
+      () => {}
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.data).toMatchObject({ uploaded: 1, skipped: 1 })
+    expect(result.data!.skippedNames).toEqual(['old.txt'])
   })
 })
