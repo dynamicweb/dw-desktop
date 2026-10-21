@@ -52,7 +52,7 @@ Get the latest version from the [Releases page](https://github.com/dynamicweb/dw
   Save a sync (folders, direction and options) to run it again from the sidebar.
 
 - **Remote file management**  
-  New folder, rename, move, copy and delete directly on the server. Pin server folders to the sidebar; recent folders are listed there too.
+  New folder, rename, move and delete directly on the server. Pin server folders to the sidebar; recent folders are listed there too.
 
 - **Activity**  
   Every upload, download and sync, grouped by batch, with progress. Cancel a whole batch or a single file, and retry failed ones. The history is kept for 30 days; transfers that were running when the app closed show as *Interrupted* and can be retried.
