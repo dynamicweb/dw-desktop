@@ -1,6 +1,6 @@
-# Truvio Commerce Cloud Desktop
+# DW Desktop
 
-A cross-platform desktop application for managing [Dynamicweb 10](https://www.dynamicweb.com) solutions — file transfers, environment management, and remote file browsing, all without needing a terminal.
+A cross-platform desktop application for moving files between your computer and [Dynamicweb 10](https://www.dynamicweb.com) solutions — browse, deploy and sync, all without needing a terminal.
 
 ![DW Desktop — light mode](dw-desktop/docs/screenshot-light.png)
 ![DW Desktop — dark mode](dw-desktop/docs/screenshot-dark.png)
@@ -24,47 +24,54 @@ Get the latest version from the [Releases page](https://github.com/dynamicweb/dw
 
 ## What you can do
 
-- Move files between your local machine and DW10 environments
-- Browse and manage remote files visually
-- Compare local and remote folder contents at a glance and filter to only files that differ
-- Work across multiple environments (dev, staging, production)
-- Handle large transfers with progress tracking and logs
+- **Browse** your computer and a DW10 site side by side, and see what differs
+- **Deploy** a local folder to the server, with a preview of every change first
+- **Get** what is missing or newer on the server back to your computer
+- Work across several environments (development, staging, production)
+- Follow every transfer in **Activity**, and retry or cancel it there
 
 
 ## Key features
 
-- **Dual-pane file browser**  
-  Local files on one side, remote environment on the other
+- **Browse — dual-pane file browser**  
+  This computer on the left, the server on the right. Drag files between them, or onto a folder, to upload or download.
 
-- **Mirror navigation**  
-  Navigate both panes together when folder structures match; arrow buttons snap either pane to the other's path
+- **Compare**  
+  Matching folders are compared automatically: files are marked *Changed*, *Not on server* or *Only on server*, with filters to show just those.
 
-- **Compare mode**  
-  Colour-coded diff between local and remote folders — different, local-only, remote-only, identical — with per-status filters
+- **Linked folders**  
+  When both panes are inside matching `/Files` folders they navigate together; arrow buttons open the matching folder on the other side.
 
-- **Drag & drop transfers**  
-  Upload and download files with real-time progress
+- **Sync — deploy and get with a preview**  
+  Pick a local and a server folder and a direction (**Deploy to server** or **Get from server**), then **Preview changes** before anything is written. Optionally compare file content (not just size and date) and delete files that only exist on the other side; deletes on your computer go to the recycle bin / trash.
 
-- **Batch operations**  
-  Move entire folders or multiple files in one go
+- **Conflict detection**  
+  DW Desktop remembers what each sync wrote. If a file changed on both sides since the last sync it is flagged as a conflict and you choose which version wins — nothing is silently overwritten.
+
+- **Saved syncs**  
+  Save a sync (folders, direction and options) to run it again from the sidebar.
 
 - **Remote file management**  
-  Rename, delete, and copy files directly in the environment
+  New folder, rename, move, copy and delete directly on the server. Pin server folders to the sidebar; recent folders are listed there too.
+
+- **Activity**  
+  Every upload, download and sync, grouped by batch, with progress. Cancel a whole batch or a single file, and retry failed ones. The history is kept for 30 days; transfers that were running when the app closed show as *Interrupted* and can be retried.
+
+- **Reliable transfers**  
+  Built on the Dynamicweb 10 File Transfer API: large files upload in chunks, downloads resume, and replaces are guarded so a file changed on the server meanwhile is not overwritten.
 
 - **Multiple environments**  
-  Switch instantly between your DW10 setups
+  Switch environments from the top of the sidebar. Each environment is marked *Production*, *Staging* or *Development*, and production sites show a visible warning.
 
 - **Flexible authentication**  
-  API key, OAuth, or username/password
+  OAuth client credentials, API key, or username/password
 
-- **Transfer history**  
-  Full log of everything that moved — useful for debugging and traceability
+- **Cross-platform, light and dark**  
+  Runs on Windows, macOS and Linux; light, dark or follow your OS
 
-- **Cross-platform**  
-  Runs on Windows, macOS, and Linux
+## Requirements
 
-- **Theme support**  
-  Light, dark, or follow your OS
+The site must run a Dynamicweb 10 version that includes the **File Transfer API** (`/Admin/Api/FileTransfer`). When you add an environment, DW Desktop tests the connection and tells you if the site doesn't expose it.
 
 
 
@@ -100,11 +107,14 @@ Download the app from the [Releases page](https://github.com/dynamicweb/dw-deskt
 
 ### 2. Add an environment
 
-Click **+ Add environment** in the sidebar, then fill in:
+Open the environment switcher at the top of the sidebar and choose **Add environment** (on first launch, use **Add environment** in the server pane). Fill in:
 
 - **Name** — a label for the environment (e.g. "My solution staging")
 - **Host** — the URL of your DW10 solution (e.g. `https://mysite.example.com`)
+- **Environment type** — Production, Staging or Development. Production sites get a visible warning before anything is written.
 - **Local start folder** *(optional)* — a default local folder to open for this environment
+
+Environments can be edited or removed later under **Settings** (or **Manage environments** in the switcher).
 
 ### 3. Choose an authentication method
 
@@ -144,6 +154,12 @@ Authenticates directly with a DW10 backend user account.
 
 **When to use:** As a fallback when neither OAuth nor API keys are available. Not recommended for shared or long-running setups.
 
+### 4. Browse, deploy and get
+
+- **Browse** shows this computer and the server side by side. Open the same folder on both sides to see what differs.
+- **Sync folder** (top right in Browse) opens **Sync** with the two folders you are looking at. Choose **Deploy to server** or **Get from server**, click **Preview changes**, review the list, then run it.
+- Watch progress in **Activity** — or in the progress pill at the bottom right — and cancel or retry from there.
+
 
 ## Contributing
 
@@ -170,10 +186,11 @@ npm run dev
 
 This starts the Electron app with hot-reload for the renderer process.
 
-### Type checking
+### Type checking and tests
 
 ```bash
 npm run typecheck
+npx vitest run
 ```
 
 ### Build a distributable
