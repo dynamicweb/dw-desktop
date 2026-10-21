@@ -1,5 +1,9 @@
 import type { StoredEnv } from './types'
 
+/** Shown when a site has no `/Admin/Api/FileTransfer` routes (older Dynamicweb). */
+export const FILE_TRANSFER_UNSUPPORTED =
+  'This site does not expose the Dynamicweb File Transfer API. Update the site to a Dynamicweb version that includes it.'
+
 /**
  * Translates the low-level errors produced while connecting to a DynamicWeb
  * host (fetch failures, HTTP status codes, OAuth/login responses) into a short,

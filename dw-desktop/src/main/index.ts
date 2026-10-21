@@ -9,6 +9,8 @@ import { registerEnvHandlers } from './ipc/env'
 import { registerAuthHandlers } from './ipc/auth'
 import { registerFileHandlers } from './ipc/files'
 import { registerSettingsHandlers } from './ipc/settings'
+import { registerSyncHandlers } from './ipc/sync'
+import { registerActivityHandlers } from './ipc/activity'
 
 if (process.platform === 'linux' && process.env['ELECTRON_ENABLE_LINUX_GPU'] !== '1') {
   app.disableHardwareAcceleration()
@@ -22,7 +24,7 @@ function createWindow(): void {
     minHeight: 500,
     show: false,
     autoHideMenuBar: true,
-    title: 'Truvio Commerce Cloud',
+    title: 'DW Desktop',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 12 },
     ...(process.platform !== 'darwin' ? { icon } : {}),
@@ -83,6 +85,8 @@ app.whenReady().then(async () => {
   registerAuthHandlers()
   registerFileHandlers()
   registerSettingsHandlers()
+  registerSyncHandlers()
+  registerActivityHandlers()
 
   createWindow()
 

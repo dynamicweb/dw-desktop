@@ -31,7 +31,7 @@ export default function UpdateBanner(): React.JSX.Element | null {
         justifyContent: 'space-between',
         padding: '6px 16px',
         background: 'var(--accent)',
-        color: '#fff',
+        color: 'var(--accent-contrast)',
         fontSize: 12,
         fontFamily: 'var(--font-ui)',
         flexShrink: 0,
@@ -48,10 +48,10 @@ export default function UpdateBanner(): React.JSX.Element | null {
           type="button"
           onClick={() => window.dw.updater.installNow()}
           style={{
-            background: 'rgba(255,255,255,0.2)',
-            border: '1px solid rgba(255,255,255,0.4)',
-            borderRadius: 5,
-            color: '#fff',
+            background: 'transparent',
+            border: '1px solid currentColor',
+            borderRadius: 'var(--r-full)',
+            color: 'inherit',
             fontSize: 11,
             fontFamily: 'var(--font-ui)',
             padding: '2px 10px',

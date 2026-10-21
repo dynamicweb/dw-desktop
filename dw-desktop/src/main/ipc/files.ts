@@ -1,13 +1,23 @@
 import { dialog, ipcMain, shell } from 'electron'
 import { homedir } from 'os'
-import { randomUUID } from 'crypto'
 import { readdir, stat } from 'fs/promises'
 import { join } from 'path'
-import { getActiveEnv, getEnvs } from '../config'
-import { listFiles, uploadFiles, downloadFile, deleteRemote, copyRemote, renameRemote } from '../dw-api'
+import { getEnvs } from '../config'
+import {
+  listFiles,
+  uploadFiles,
+  downloadFile,
+  deleteRemote,
+  copyRemote,
+  renameRemote,
+  moveRemote,
+  createRemoteDirectory,
+  checkUploadConflicts
+} from '../dw-api'
+import { cancelJobs, releaseJobs, trackJobs } from '../cancellation'
 import type { FileEntry, IPCResult, StoredEnv } from '../../shared/types'
 
-function getEnvOrError(envName: string): { env: StoredEnv } | IPCResult {
+export function getEnvOrError(envName: string): { env: StoredEnv } | IPCResult {
   const all = getEnvs()
   const env = all.find((e) => e.name === envName)
   if (!env) return { ok: false, error: `Environment "${envName}" is not configured` }
@@ -66,25 +76,28 @@ async function listWindowsDrives(): Promise<FileEntry[]> {
 export function registerFileHandlers(): void {
   ipcMain.handle(
     'files:list',
-    async (
-      _event,
-      { envName, path, loadAll }: { envName: string; path: string; loadAll?: boolean }
-    ) => {
+    async (_event, { envName, path }: { envName: string; path: string }) => {
       const result = getEnvOrError(envName)
       if ('ok' in result) return result
-      return listFiles(result.env, path, loadAll ?? false)
+      return listFiles(result.env, path)
     }
   )
 
-  ipcMain.handle('files:delete', async (_event, { envName, path }: { envName: string; path: string }) => {
-    const result = getEnvOrError(envName)
-    if ('ok' in result) return result
-    return deleteRemote(result.env, path)
-  })
+  ipcMain.handle(
+    'files:delete',
+    async (_event, { envName, path }: { envName: string; path: string }) => {
+      const result = getEnvOrError(envName)
+      if ('ok' in result) return result
+      return deleteRemote(result.env, path)
+    }
+  )
 
   ipcMain.handle(
     'files:copy',
-    async (_event, { envName, source, destination }: { envName: string; source: string; destination: string }) => {
+    async (
+      _event,
+      { envName, source, destination }: { envName: string; source: string; destination: string }
+    ) => {
       const result = getEnvOrError(envName)
       if ('ok' in result) return result
       return copyRemote(result.env, source, destination)
@@ -93,7 +106,10 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle(
     'files:rename',
-    async (_event, { envName, filePath, newName }: { envName: string; filePath: string; newName: string }) => {
+    async (
+      _event,
+      { envName, filePath, newName }: { envName: string; filePath: string; newName: string }
+    ) => {
       const result = getEnvOrError(envName)
       if ('ok' in result) return result
       return renameRemote(result.env, filePath, newName)
@@ -101,13 +117,71 @@ export function registerFileHandlers(): void {
   )
 
   ipcMain.handle(
-    'files:download',
-    async (_event, { envName, remotePath, localPath }: { envName: string; remotePath: string; localPath: string }) => {
+    'files:move',
+    async (
+      _event,
+      { envName, sourcePath, targetDir }: { envName: string; sourcePath: string; targetDir: string }
+    ) => {
       const result = getEnvOrError(envName)
       if ('ok' in result) return result
-      return downloadFile(result.env, remotePath, localPath)
+      return moveRemote(result.env, sourcePath, targetDir)
     }
   )
+
+  ipcMain.handle(
+    'files:createDirectory',
+    async (
+      _event,
+      { envName, parentPath, name }: { envName: string; parentPath: string; name: string }
+    ) => {
+      const result = getEnvOrError(envName)
+      if ('ok' in result) return result
+      return createRemoteDirectory(result.env, parentPath, name)
+    }
+  )
+
+  ipcMain.handle(
+    'files:checkConflicts',
+    async (
+      _event,
+      {
+        envName,
+        localPaths,
+        remotePath
+      }: { envName: string; localPaths: string[]; remotePath: string }
+    ) => {
+      const result = getEnvOrError(envName)
+      if ('ok' in result) return result
+      return checkUploadConflicts(result.env, localPaths, remotePath)
+    }
+  )
+
+  ipcMain.handle(
+    'files:download',
+    async (
+      _event,
+      {
+        envName,
+        remotePath,
+        localPath,
+        jobId
+      }: { envName: string; remotePath: string; localPath: string; jobId?: string }
+    ) => {
+      const result = getEnvOrError(envName)
+      if ('ok' in result) return result
+      const jobs = jobId ? [jobId] : []
+      const controller = trackJobs(jobs)
+      try {
+        return await downloadFile(result.env, remotePath, localPath, controller.signal)
+      } finally {
+        releaseJobs(jobs)
+      }
+    }
+  )
+
+  ipcMain.on('files:cancel', (_event, { jobIds }: { jobIds: string[] }) => {
+    cancelJobs(jobIds)
+  })
 
   // Upload uses ipcMain.on (fire-and-forget with progress events)
   ipcMain.on(
@@ -120,7 +194,13 @@ export function registerFileHandlers(): void {
         remotePath,
         overwrite,
         jobId
-      }: { envName: string; localPaths: string[]; remotePath: string; overwrite: boolean; jobId: string }
+      }: {
+        envName: string
+        localPaths: string[]
+        remotePath: string
+        overwrite: boolean
+        jobId: string
+      }
     ) => {
       const result = getEnvOrError(envName)
       if ('ok' in result) {
@@ -128,14 +208,23 @@ export function registerFileHandlers(): void {
         return
       }
 
-      void uploadFiles(result.env, localPaths, remotePath, overwrite, (transferred, total, currentFile) => {
-        event.sender.send('files:progress', { jobId, transferred, total, currentFile })
-      })
+      const controller = trackJobs([jobId])
+      void uploadFiles(
+        result.env,
+        localPaths,
+        remotePath,
+        overwrite,
+        (transferred, total, currentFile) => {
+          event.sender.send('files:progress', { jobId, transferred, total, currentFile })
+        },
+        controller.signal
+      )
         .then((uploadResult) => {
           event.sender.send('files:done', {
             jobId,
             ok: uploadResult.ok,
             error: uploadResult.error,
+            cancelled: controller.signal.aborted,
             uploaded: uploadResult.data?.uploaded,
             skipped: uploadResult.data?.skipped,
             skippedNames: uploadResult.data?.skippedNames
@@ -144,23 +233,27 @@ export function registerFileHandlers(): void {
         .catch((err: Error) => {
           event.sender.send('files:done', { jobId, ok: false, error: err.message })
         })
+        .finally(() => releaseJobs([jobId]))
     }
   )
 
-  ipcMain.handle('fs:list', async (_event, { dirPath }: { dirPath: string }): Promise<IPCResult<FileEntry[]>> => {
-    try {
-      // Empty path = "above the drive root" view (Windows drives or Unix /).
-      if (!dirPath) {
-        if (process.platform === 'win32') {
-          return { ok: true, data: await listWindowsDrives() }
+  ipcMain.handle(
+    'fs:list',
+    async (_event, { dirPath }: { dirPath: string }): Promise<IPCResult<FileEntry[]>> => {
+      try {
+        // Empty path = "above the drive root" view (Windows drives or Unix /).
+        if (!dirPath) {
+          if (process.platform === 'win32') {
+            return { ok: true, data: await listWindowsDrives() }
+          }
+          return { ok: true, data: await listLocalEntries('/') }
         }
-        return { ok: true, data: await listLocalEntries('/') }
+        return { ok: true, data: await listLocalEntries(dirPath) }
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
       }
-      return { ok: true, data: await listLocalEntries(dirPath) }
-    } catch (err) {
-      return { ok: false, error: (err as Error).message }
     }
-  })
+  )
 
   ipcMain.handle('fs:homedir', (): string => {
     return homedir()
@@ -168,7 +261,10 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle(
     'fs:showOpenDialog',
-    async (_event, { properties }: { properties: string[] }): Promise<IPCResult<{ paths: string[] }>> => {
+    async (
+      _event,
+      { properties }: { properties: string[] }
+    ): Promise<IPCResult<{ paths: string[] }>> => {
       const result = await dialog.showOpenDialog({
         properties: properties as Electron.OpenDialogOptions['properties']
       })
@@ -184,8 +280,4 @@ export function registerFileHandlers(): void {
       return { ok: false, error: (err as Error).message }
     }
   })
-
-  // Keep unused references to avoid lint errors
-  void randomUUID
-  void getActiveEnv
 }

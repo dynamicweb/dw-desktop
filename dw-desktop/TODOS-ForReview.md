@@ -5,45 +5,16 @@ tools (Transmit, Cyberduck, FileZilla, WinSCP, Mountain Duck, Beyond Compare).
 Sorted by priority based on day-to-day friction for the target audience: DW
 partners deploying to and maintaining DW10 solutions.
 
-This list deliberately excludes items already tracked in TODOS.md (streaming
-multipart upload, virtual scrolling for RemoteFileTree, deep recursive conflict
-detection).
+This list deliberately excludes items already tracked in TODOS.md (virtual
+scrolling for RemoteFileTree).
+
+All remote operations go through the DW10 File Transfer API
+(`/Admin/Api/FileTransfer`); its endpoints are referenced below where they make an
+item easier. Finished items are at the bottom under **Done**.
 
 ---
 
 ## High priority — daily friction
-
-### Create new folder (remote)
-
-**What:** Add a "New folder" action to the remote pane (toolbar button + context-menu
-entry) that creates an empty directory at the current remote path.
-
-**Why:** Today, the only way to create a remote folder is to upload a local folder
-that already contains files. Partners frequently need to scaffold target
-directories on a fresh solution before the first deployment, or split an existing
-flat structure into subfolders.
-
-**Pros:** Removes a workflow blocker that every other file manager solves by default.
-
-**Cons:** The DW Management API has no dedicated create-folder endpoint. The only
-confirmed path is a workaround: upload a placeholder file with
-`createMissingDirectories=true` to force directory creation, then immediately
-delete it. This is fragile if the delete fails. The `FileCreateRename` endpoint
-(used for rename today) may accept a directory-creation variant — needs a quick
-API investigation before committing to either approach.
-
-**Context:** All comparable tools put this on a visible toolbar button. Its absence
-is the most-reported-feeling gap.
-
-**Value:** High — every partner hits this immediately; blocks basic reorganization
-workflows with no clean workaround.
-
-**Difficulty:** Medium — no direct API endpoint confirmed; needs investigation first.
-If `FileCreateRename` supports directories the implementation becomes trivial; if not,
-the placeholder-upload-then-delete workaround works but requires careful error
-handling.
-
----
 
 ### Keyboard shortcuts
 
@@ -82,8 +53,9 @@ visually scanning is slow and error-prone.
 
 **Pros:** Pure client-side feature on already-fetched entries. Instant feedback.
 
-**Cons:** Interacts awkwardly with the 500-entry truncation — a match could exist
-in the un-fetched tail. Best paired with the virtual-scrolling work in TODOS.md.
+**Cons:** None structural — remote listings are complete (no truncation), so a
+filter over the loaded entries never misses a match. Pairs well with the
+virtual-scrolling work in TODOS.md for very large folders.
 
 **Context:** Pairs naturally with the existing "Virtual scrolling for
 RemoteFileTree" backlog item.
@@ -104,16 +76,16 @@ ascending or descending. Persisted per-pane.
 **Why:** "Find the most recently changed file" or "find the largest file" is the
 most common scanning operation in any file manager.
 
-**Pros:** No backend changes — `AssetsByDirectory` already returns `sizeInBytes`
-and `updatedAt` for every entry, so all four sort keys (name, size, type, date)
+**Pros:** No backend changes — `GET entries` already returns `size` and
+`modifiedUtc` for every entry, so all four sort keys (name, size, type, date)
 are available without extra API calls.
 
 **Cons:** Need a clear convention for directories-first vs. fully mixed sort order.
 Local entries also have size and mtime via Node.js `fs.stat`.
 
-**Context:** All required data is already in the loaded `FileEntry` objects. Sort
-order today is whatever `AssetsByDirectory` returns, which appears effectively
-arbitrary.
+**Context:** All required data is already in the loaded `FileEntry` objects. Remote
+entries arrive sorted by path (ordinal, case-sensitive); local entries are sorted in
+`ipc/files.ts`. Neither order is user-selectable.
 
 **Value:** High — universal file manager expectation; immediately useful for
 deployment debugging ("which file changed last?").
@@ -162,10 +134,16 @@ Manual drag-and-drop misses files and leaves stale ones behind.
 
 **Pros:** Directly solves the primary use case in the README.
 
-**Cons:** Real complexity — recursive remote walk, diff preview UI, conflict
-handling, deletions on the target side.
+**Cons:** Real complexity — diff preview UI, conflict handling, deletions on the
+target side.
 
-**Context:** Builds on Folder compare view (above) as a hard prerequisite.
+**Context:** The building blocks now exist: the File Transfer API's cursor-paginated
+`manifest` gives the full remote tree with `size`, `modifiedUtc` and `eTag`;
+`entries/checksum` gives SHA-256 when content-level comparison is needed; and
+`If-Match` on finalize/delete prevents overwriting a remote version the plan didn't
+see. The CLI v2 branch implements exactly this (`bin/transfer/sync.js`: plan, diff,
+`--delete`, eTag baseline in `~/.dwc`) and is the reference to port. The existing
+single-folder compare view covers the preview UI's starting point.
 
 **Value:** Very High — the single feature that would make DW Desktop a proper
 deployment tool rather than a manual file-transfer aid.
@@ -205,28 +183,32 @@ pre-download; temp file lifecycle management adds complexity.
 
 ### Pause / resume / retry / cancel transfers
 
-**What:** Make the transfer log actionable: pause/resume the queue as a whole,
+**What:** Make the transfer queue actionable: pause/resume the queue as a whole,
 cancel an individual in-flight transfer, retry a failed transfer without
-re-initiating from scratch. (True partial-upload resume is a stretch goal
-dependent on streaming-upload backend support.)
+re-initiating from scratch, and resume a partly uploaded file across app restarts.
 
-**Why:** Long uploads on flaky networks currently fail with no recourse but to
-start over. Cancel is basic queue control.
+**Why:** Cancel is basic queue control, and a failed job today can only be redone by
+dragging the files again.
 
-**Pros:** Standard in every comparable tool; pause and cancel are low-cost to
-implement.
+**Pros:** Standard in every comparable tool; the backend already supports all of it.
 
-**Cons:** True resume after partial failure requires backend HTTP Range support —
-likely a Phase 3 item alongside the streaming-upload work in TODOS.md.
+**Cons:** Upload resume across restarts means persisting session ids (per file,
+keyed by local path + size + mtime) and pruning them when the server expires them
+(24 h default).
 
-**Context:** The transfer log is record-only today.
+**Context:** Already done automatically, without UI: transient errors are retried
+(network failures, 5xx, `retryable` errors), mutations carry an `Idempotency-Key` so
+retries can't double-apply, and interrupted downloads resume from an eTag-named
+`.dwpart` file via `Range`/`If-Range`. The server supports upload resume
+(`GET uploads/{id}` returns `receivedChunks`; chunks can be re-sent freely), but the
+app doesn't keep session ids yet. The queue UI itself is still record-only.
 
 **Value:** Medium-High — cancel and retry deliver most of the value and matter
 most when large batches or slow connections are involved.
 
-**Difficulty:** Medium — cancel: abort the current fetch (easy); pause: stop
-dispatching next queued jobs (easy); retry: re-queue same parameters (easy);
-true partial resume requires backend investigation.
+**Difficulty:** Medium — cancel: abort the fetch and `DELETE uploads/{id}`; pause:
+stop dispatching next queued jobs; retry: re-queue same parameters; upload resume:
+persist session ids and skip `receivedChunks`. No backend work needed.
 
 ---
 
@@ -239,49 +221,44 @@ download + reupload.
 **Why:** Reorganizing remote solution structure (moving images to a different
 category folder, restructuring Templates) is a real operation that partners do.
 
-**Pros:** A server-side Copy endpoint already exists (`/Admin/Api/Management/Files/Copy`)
-and Delete is already implemented. Move = Copy + Delete, entirely server-side with
-no download or reupload needed.
+**Pros:** `POST entries/move` moves a file or directory to any destination path in
+one atomic same-volume rename — no copy + delete, so no half-done duplicate state.
+It's already used for rename (`renameRemote` in `dw-api.ts`).
 
-**Cons:** Two API calls instead of one, so a failure between Copy and Delete leaves
-a duplicate. Needs a clean rollback or at minimum a clear error message.
+**Cons:** Needs a decision for an existing destination (`overwrite` flag, or ask the
+user like the upload conflict modal does).
 
-**Context:** In-place rename works today; the Copy endpoint is already wired into
-`dw-api.ts` (used internally). Cross-path move is a small step on top.
+**Context:** In-place rename works today and is the same call with a different
+destination. Cross-path move is a small step on top.
 
 **Value:** Medium — useful for reorganization tasks but not a daily operation.
 
-**Difficulty:** Low — Copy and Delete are both already implemented; the main work
-is wiring drag-to-folder (a different folder, not the current one) in FileList and
-handling the Copy-succeeded-but-Delete-failed edge case.
+**Difficulty:** Low — the API call is one line; the main work is wiring
+drag-to-folder (a different folder, not the current one) in FileList.
 
 ---
 
 ### Configurable transfer concurrency
 
-**What:** Replace the current serial `for` loop in `handleUpload` /
-`handleDownload` with a promise pool (e.g., `p-limit`) with a configurable max
-(default 4). Expose the setting in preferences.
+**What:** Expose the transfer concurrency as a preference (default 4).
 
-**Why:** Uploading 300 small template files one-at-a-time is significantly slower
-than running 4 in parallel. Partners deploying full template sets feel this directly.
+**Why:** Fast connections and many-small-file deployments benefit from more
+parallelism; slow or metered connections from less.
 
-**Pros:** Often a 4–10× real-world speedup for many-small-file batches with no
-backend changes.
+**Pros:** Parallel transfers are already implemented; this is only a setting.
 
-**Cons:** The HTTP agent in the codebase caps at `maxSockets: 8`, which sets the
-practical ceiling. Auth-token contention (especially OAuth token refresh) may
-also limit safe parallelism. Default of 4 is a reasonable starting point.
+**Cons:** Peak upload memory is `FILE_CONCURRENCY × CHUNK_PARALLELISM × chunkSize`
+(today 4 × 2 × 8 MB), so the setting needs a sane upper bound. OAuth token refresh
+under concurrency should be checked.
 
-**Context:** The upload loop in `dw-api.ts` is currently a serial `for` loop over
-300-file batches. The HTTP agent already supports 8 concurrent sockets — the
-client just doesn't use them for batches.
+**Context:** Done in code: `dw-api.ts` runs uploads and directory downloads through a
+promise pool (`mapPool`, `FILE_CONCURRENCY = 4`), with 2 chunk PUTs in flight per
+file. The constant just isn't user-configurable.
 
-**Value:** High — measurable, immediately noticeable speedup for the most common
-deployment pattern (deploying a Templates folder with many small files).
+**Value:** Low-Medium now that the default is already parallel.
 
-**Difficulty:** Low-Medium — replacing the serial loop with a promise pool is
-~50 lines; the preference UI adds a little more. No API or protocol changes needed.
+**Difficulty:** Low — pass the value from settings into `uploadFiles` /
+`downloadFile` and add a preference field.
 
 ---
 
@@ -365,8 +342,8 @@ collapsible sidebar UI; import/export needs careful credential handling.
 ### Smarter conflict resolution UX
 
 **What:** Per-file conflict resolution (Skip / Replace / Keep both with
-auto-rename) in the upload conflict banner, instead of the current all-or-nothing
-"Skip existing / Replace all".
+auto-rename) in the upload conflict modal, instead of the current all-or-nothing
+"Upload missing only / Replace existing".
 
 **Why:** Real uploads often have a mix — most files should overwrite, one or two
 should be preserved. Today the user must manually exclude files before uploading.
@@ -374,10 +351,12 @@ should be preserved. Today the user must manually exclude files before uploading
 **Pros:** Matches the standard OS file-copy dialog. No new transfer-protocol work.
 
 **Cons:** UI for many conflicts gets long; needs an "apply to remaining" affordance
-to stay usable. Full correctness depends on the deep-recursive-conflict-detection
-item in TODOS.md.
+to stay usable.
 
-**Context:** Builds on the existing ConflictBanner in DualPaneBrowser.
+**Context:** Builds on `UploadConflictModal`. The pre-upload check
+(`checkUploadConflicts`) already returns the full list of conflicting paths,
+including nested subfolders, so the per-file data is available; `uploadFiles` would
+need to accept a per-file overwrite set instead of one flag.
 
 **Value:** Medium — the existing all-or-nothing mostly covers common cases; per-file
 resolution matters most for mixed-state deployments.
@@ -408,5 +387,23 @@ level tool (e.g., Little Snitch, NetLimiter) handles this better.
 
 **Difficulty:** Medium — possible via chunked dispatch with artificial delays, but
 the result is imprecise and the implementation is non-trivial.
+
+---
+
+## Done
+
+### Create new folder (remote)
+
+A **New folder** button (folder-with-plus icon) in the remote pane header opens a
+name dialog (`NewFolderModal`) and creates the folder in the current remote path via
+`POST entries/directory` (`createRemoteDirectory` in `dw-api.ts`, IPC
+`files:createDirectory`). Names with `\ / : * ? " < > |` or `.`/`..` are rejected
+before sending; an existing folder or file with that name is reported in the dialog
+(the endpoint is idempotent and returns `created: false` for an existing folder). The
+pane refreshes on success. The placeholder-upload workaround is not needed — the File
+Transfer API has a real create-directory endpoint.
+
+Not done: a context-menu entry. The remote context menu only opens on an entry, so
+"New folder" there needs a background (empty-space) menu first.
 
 

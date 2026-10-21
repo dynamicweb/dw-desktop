@@ -1,32 +1,56 @@
-import { nanoid } from 'nanoid'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { envLabel, type FileEntry } from '../../../shared/types'
+import {
+  envKind,
+  envKindLabel,
+  envLabel,
+  type CompareMode,
+  type DiffStatus,
+  type FileEntry
+} from '../../../shared/types'
 import { useEnvStore } from '../stores/envStore'
 import { useFileStore } from '../stores/fileStore'
 import { useToastStore } from '../stores/toastStore'
-import { useTransferStore } from '../stores/transferStore'
+import { startDownload, startUpload } from '../stores/transferStore'
+import { useUiStore } from '../stores/uiStore'
+import { useWorkspaceStore } from '../stores/workspaceStore'
 import { compareEntries, countByStatus, diffKey, getDwRelativeTail } from '../utils/compareEntries'
-import AddEnvModal from './AddEnvModal'
-import CompareToolbar from './CompareToolbar'
+import type { SortState } from '../utils/format'
+import { fromDisplayRemotePath, toDisplayRemotePath, validateName } from '../utils/paths'
 import ContextMenu from './ContextMenu'
-import FileList from './FileList'
+import { PromptDialog } from './Dialog'
+import FileList, { type Pane } from './FileList'
+import {
+  AlertIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  FolderPlusIcon,
+  GlobeIcon,
+  LinkIcon,
+  MonitorIcon,
+  PlusIcon,
+  SearchIcon,
+  SyncIcon,
+  UnlinkIcon,
+  UploadIcon
+} from './Icons'
 import PaneHeader from './PaneHeader'
+import UploadConflictModal from './UploadConflictModal'
 
 interface ContextMenuState {
   entry: FileEntry
   x: number
   y: number
-  pane: 'local' | 'remote'
+  pane: Pane
 }
 
-// Map the UI's virtual remote path (rooted at '/') to the real server
-// path that the DW Management API uses ('/Files/...'). The backend does
-// the same normalization in dw-api.ts#normalizeRemotePath — this helper
-// is purely for user-facing display and clipboard strings.
-function toDisplayRemotePath(virtualPath: string): string {
-  if (!virtualPath || virtualPath === '/') return '/Files/'
-  return `/Files${virtualPath}`
+interface PendingUpload {
+  localPaths: string[]
+  targetRemotePath: string
+  conflictCount: number
+  totalCount: number
 }
+
+type StatusFilter = 'all' | 'different' | 'local-only' | 'remote-only'
 
 function parentPath(path: string): string {
   const normalized = path.replace(/\\/g, '/')
@@ -41,13 +65,6 @@ function parentPath(path: string): string {
   return parent
 }
 
-// Last path segment, splitting on BOTH separators — a Windows path
-// (C:\a\b.txt) has no '/', so splitting on '/' alone returns the whole string
-// and never the file name.
-function baseName(p: string): string {
-  return p.split(/[/\\]/).pop() || p
-}
-
 function pathSegmentCount(p: string): number {
   return p.replace(/\\/g, '/').replace(/^\//, '').replace(/\/$/, '').split('/').filter(Boolean)
     .length
@@ -59,24 +76,35 @@ function localParentPath(path: string): string {
   if (/^[A-Za-z]:[\\/]?$/.test(path)) return ''
   // Unix root has no parent.
   if (path === '/') return '/'
-
-  // Prefer backslash as sep if present; otherwise forward slash.
   const sep = path.includes('\\') ? '\\' : '/'
   // Split on either separator so forward-slash Windows paths (D:/a/b) work too.
   const parts = path.split(/[/\\]/).filter(Boolean)
   parts.pop()
-
-  if (parts.length === 0) {
-    return sep === '/' ? '/' : ''
-  }
+  if (parts.length === 0) return sep === '/' ? '/' : ''
   // Drive letter alone needs a trailing separator to be listable.
-  if (parts.length === 1 && /^[A-Za-z]:$/.test(parts[0])) {
-    return parts[0] + sep
-  }
+  if (parts.length === 1 && /^[A-Za-z]:$/.test(parts[0])) return parts[0] + sep
   // Detect Windows by drive letter — NOT by separator — so D:/a/b is handled correctly.
   const isWindows = /^[A-Za-z]:/.test(path)
   return isWindows ? parts.join(sep) : '/' + parts.join('/')
 }
+
+const SORT_KEY = 'dw.sort'
+
+function loadSort(): SortState {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SORT_KEY) ?? '') as SortState
+    if (['name', 'size', 'modified'].includes(parsed.key)) return parsed
+  } catch {
+    // default below
+  }
+  return { key: 'name', dir: 'asc' }
+}
+
+const COMPARE_OPTIONS: { value: CompareMode; label: string }[] = [
+  { value: 'auto', label: 'Compare matching folders' },
+  { value: 'on', label: 'Compare any folders' },
+  { value: 'off', label: 'Don’t compare' }
+]
 
 export default function DualPaneBrowser(): React.JSX.Element {
   const activeEnv = useEnvStore((s) => s.activeEnv)
@@ -85,28 +113,23 @@ export default function DualPaneBrowser(): React.JSX.Element {
     remotePath,
     remoteEnvName,
     remoteError,
-    remoteTotalCount,
-    remoteHasMore,
-    remoteLoadedAll,
     localEntries,
     localPath,
     selected,
     compareMode,
     diffMap,
-    highlightedStatuses,
     mirrorNav,
     loadRemote,
-    loadAllRemote,
     refreshRemote,
     loadLocal,
     setSelected,
     setCompareMode,
     setDiffMap,
-    setMirrorNav,
-    toggleHighlightedStatus
+    setMirrorNav
   } = useFileStore()
-  const { addJob } = useTransferStore()
   const showToast = useToastStore((s) => s.show)
+  const { openAddEnv, startSync, remoteRequest } = useUiStore()
+  const { pinned, togglePin, addRecent } = useWorkspaceStore()
 
   const [remoteLoading, setRemoteLoading] = useState(false)
   const [localLoading, setLocalLoading] = useState(false)
@@ -115,27 +138,27 @@ export default function DualPaneBrowser(): React.JSX.Element {
   const [remoteBackStack, setRemoteBackStack] = useState<string[]>([])
   const [remoteForwardStack, setRemoteForwardStack] = useState<string[]>([])
   const [pathsMatch, setPathsInSync] = useState(false)
-  const [filterActive, setFilterActive] = useState(false)
-  const [localMirrorPaths, setLocalMirrorPaths] = useState<string[]>([])
-  const [remoteMirrorPaths, setRemoteMirrorPaths] = useState<string[]>([])
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [query, setQuery] = useState('')
+  const [sort, setSortState] = useState<SortState>(loadSort)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
-  const [showAddEnv, setShowAddEnv] = useState(false)
-  const [conflictCount, setConflictCount] = useState(0)
-  const [overwrite, setOverwrite] = useState(false)
-  const [loadingAll, setLoadingAll] = useState(false)
-  const [pendingUpload, setPendingUpload] = useState<{
-    localPaths: string[]
-    targetRemotePath: string
-    conflicts: number
-    total: number
-  } | null>(null)
+  const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null)
+  const [showNewFolder, setShowNewFolder] = useState(false)
+  const [moveTargets, setMoveTargets] = useState<string[] | null>(null)
 
+  const production = !!activeEnv && envKind(activeEnv) === 'production'
+
+  function setSort(s: SortState): void {
+    setSortState(s)
+    localStorage.setItem(SORT_KEY, JSON.stringify(s))
+  }
+
+  // ── Pane split ──────────────────────────────────────────────────────────────
   const containerRef = useRef<HTMLDivElement>(null)
   const [splitRatio, setSplitRatio] = useState<number>(() => {
     const saved = Number(localStorage.getItem('dw.splitRatio'))
     return Number.isFinite(saved) && saved >= 0.2 && saved <= 0.8 ? saved : 0.5
   })
-  const [dragging, setDragging] = useState(false)
 
   function handleDividerPointerDown(e: React.PointerEvent<HTMLDivElement>): void {
     if (!containerRef.current) return
@@ -143,20 +166,15 @@ export default function DualPaneBrowser(): React.JSX.Element {
     const container = containerRef.current
     const target = e.currentTarget
     target.setPointerCapture(e.pointerId)
-    setDragging(true)
-
     function onMove(ev: PointerEvent): void {
       const rect = container.getBoundingClientRect()
-      const ratio = (ev.clientX - rect.left) / rect.width
-      const clamped = Math.min(0.8, Math.max(0.2, ratio))
-      setSplitRatio(clamped)
+      setSplitRatio(Math.min(0.8, Math.max(0.2, (ev.clientX - rect.left) / rect.width)))
     }
     function onUp(): void {
       target.releasePointerCapture(e.pointerId)
       target.removeEventListener('pointermove', onMove)
       target.removeEventListener('pointerup', onUp)
       target.removeEventListener('pointercancel', onUp)
-      setDragging(false)
       setSplitRatio((r) => {
         localStorage.setItem('dw.splitRatio', String(r))
         return r
@@ -167,10 +185,10 @@ export default function DualPaneBrowser(): React.JSX.Element {
     target.addEventListener('pointercancel', onUp)
   }
 
+  // ── Initial load per environment ────────────────────────────────────────────
   useEffect(() => {
     if (!activeEnv) return
-    // If the store already has entries loaded for this env, don't reload on re-mount —
-    // tab switches should preserve the user's current folder.
+    // Coming back to Browse keeps the current folder rather than reloading.
     if (remoteEnvName === activeEnv.name && remoteEntries.length > 0) return
 
     let cancelled = false
@@ -207,45 +225,30 @@ export default function DualPaneBrowser(): React.JSX.Element {
     }
   }, [activeEnv?.name])
 
+  // Remember visited server folders for the sidebar's Recent list.
   useEffect(() => {
-    if (selected.pane !== 'local' || selected.paths.length === 0) {
-      setConflictCount(0)
-      return
-    }
-    const remoteNames = new Set(remoteEntries.map((e) => e.name))
-    const conflicts = selected.paths.filter((p) => remoteNames.has(baseName(p)))
-    setConflictCount(conflicts.length)
-  }, [selected, remoteEntries])
+    if (activeEnv && remoteEnvName === activeEnv.name && !remoteError) addRecent(remotePath)
+  }, [remotePath, remoteEnvName, remoteError])
 
+  // ── Compare ────────────────────────────────────────────────────────────────
   useEffect(() => {
     const localTail = getDwRelativeTail(localPath)
     const remoteTail = getDwRelativeTail(toDisplayRemotePath(remotePath))
     const tailsMatch = !!(localTail && remoteTail && localTail === remoteTail)
     setPathsInSync(tailsMatch)
-
-    if (compareMode === 'off') {
-      setDiffMap(new Map())
-      return
-    }
-    // A partial remote listing (only the first page loaded) would produce
-    // misleading diffs — every unloaded remote file makes its local counterpart
-    // look "local-only". Suppress comparison until the folder is fully loaded;
-    // the remote-pane banner tells the user why and offers "Load all".
-    if (remoteHasMore) {
-      setDiffMap(new Map())
-      return
-    }
-    // 'auto' = match-only: compare only when the two panes' folder paths line up.
-    // 'on' = compare whatever is in the panes regardless of paths (comparing
-    // different folder structures is a valid use case; it just surfaces more
-    // local-only/remote-only entries). Folder-path matching otherwise gates only
-    // mirror navigation, not comparison.
-    if (compareMode === 'auto' && !tailsMatch) {
+    // 'auto' compares only when the two panes show the same /Files/… folder;
+    // 'on' compares whatever is in the panes.
+    if (compareMode === 'off' || (compareMode === 'auto' && !tailsMatch)) {
       setDiffMap(new Map())
       return
     }
     setDiffMap(compareEntries(localEntries, remoteEntries))
-  }, [compareMode, localEntries, remoteEntries, localPath, remotePath, remoteHasMore, setDiffMap])
+  }, [compareMode, localEntries, remoteEntries, localPath, remotePath, setDiffMap])
+
+  // A filter that no longer matches anything falls back to showing everything.
+  const counts = countByStatus(diffMap)
+  const activeFilter: StatusFilter =
+    statusFilter !== 'all' && counts[statusFilter] > 0 ? statusFilter : 'all'
 
   const mirrorActiveRef = useRef(false)
   useEffect(() => {
@@ -260,27 +263,18 @@ export default function DualPaneBrowser(): React.JSX.Element {
     mirrorActiveRef.current = active
   }, [mirrorNav, pathsMatch, localLoading, remoteLoading])
 
+  // Folders present on both sides, which linked navigation follows.
   const mirrorCandidateKeys = useMemo(() => {
     if (!pathsMatch || !mirrorNav) return null
-    if (diffMap.size > 0) {
-      const keys = new Set<string>()
-      for (const [key, status] of diffMap) {
-        if (status === 'identical' || status === 'different') keys.add(key)
-      }
-      return keys
-    }
-    // Compare is off — compute folder matches directly from entries
-    const remoteKeys = new Set(
-      remoteEntries.filter((e) => e.type === 'directory').map((e) => diffKey(e))
-    )
+    const remoteKeys = new Set(remoteEntries.filter((e) => e.type === 'directory').map(diffKey))
     const keys = new Set<string>()
     for (const e of localEntries) {
       if (e.type === 'directory' && remoteKeys.has(diffKey(e))) keys.add(diffKey(e))
     }
     return keys
-  }, [diffMap, pathsMatch, mirrorNav, localEntries, remoteEntries])
+  }, [pathsMatch, mirrorNav, localEntries, remoteEntries])
 
-  // User-initiated navigation: push the current path onto back, clear forward.
+  // ── Navigation ─────────────────────────────────────────────────────────────
   const normLocal = (p: string): string => p.replace(/\\/g, '/')
 
   async function navigateLocalTo(path: string): Promise<boolean> {
@@ -295,7 +289,6 @@ export default function DualPaneBrowser(): React.JSX.Element {
     return ok
   }
 
-  // Back/forward use the history stacks rather than the parent path.
   async function goBackLocal(): Promise<void> {
     if (localBackStack.length === 0) return
     const [prev, ...rest] = localBackStack
@@ -349,19 +342,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
     setRemoteLoading(false)
   }
 
-  function matchRemoteToLocal(): void {
-    if (localLoading || remoteLoading) return
-    // Navigate remote to match local's /Files/… path — extract original-cased segments
-    const norm = localPath.replace(/\\/g, '/')
-    const parts = norm.split('/')
-    const filesIdx = parts.findIndex((s) => s.toLowerCase() === 'files')
-    if (filesIdx === -1) return
-    const relParts = parts.slice(filesIdx + 1).filter(Boolean)
-    void navigateRemoteTo(relParts.length > 0 ? '/' + relParts.join('/') : '/')
-  }
-
   function getLocalFilesBase(): { base: string; sep: string } | null {
-    // Try current localPath first, then fall back to localStartPath from env settings
+    // Try the current local folder first, then the environment's start folder.
     for (const candidate of [localPath, activeEnv?.localStartPath ?? '']) {
       if (!candidate) continue
       const norm = candidate.replace(/\\/g, '/')
@@ -372,7 +354,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
       if (idx !== -1) {
         base = parts.slice(0, idx + 1).join('/')
       } else if (candidate === (activeEnv?.localStartPath ?? '')) {
-        // localStartPath doesn't include a Files segment — treat it as the parent and append Files
+        // A start folder without a Files segment is treated as the parent of Files.
         base = norm.replace(/\/$/, '') + '/Files'
       } else {
         continue
@@ -383,149 +365,121 @@ export default function DualPaneBrowser(): React.JSX.Element {
   }
 
   function getFilesRelativeParts(p: string): string[] | null {
-    const norm = p.replace(/\\/g, '/')
-    const parts = norm.split('/')
+    const parts = p.replace(/\\/g, '/').split('/')
     const idx = parts.findIndex((s) => s.toLowerCase() === 'files')
     if (idx === -1) return null
     return parts.slice(idx + 1).filter(Boolean)
   }
 
+  function localPathForRemote(virtual: string): string | null {
+    const filesBase = getLocalFilesBase()
+    if (!filesBase) return null
+    const relParts = virtual.split('/').filter(Boolean)
+    return (
+      filesBase.base + (relParts.length > 0 ? filesBase.sep + relParts.join(filesBase.sep) : '')
+    )
+  }
+
+  function matchRemoteToLocal(): void {
+    if (localLoading || remoteLoading) return
+    const relParts = getFilesRelativeParts(localPath)
+    if (relParts === null) return
+    void navigateRemoteTo(relParts.length > 0 ? '/' + relParts.join('/') : '/')
+  }
+
   function matchLocalToRemote(): void {
     if (localLoading || remoteLoading) return
-    const filesBase = getLocalFilesBase()
-    if (!filesBase) return
-    const { base, sep } = filesBase
-    const relParts = remotePath.split('/').filter(Boolean)
-    const newLocal = base + (relParts.length > 0 ? sep + relParts.join(sep) : '')
-    const fallback = activeEnv?.localStartPath ?? base
+    const target = localPathForRemote(remotePath)
+    if (!target) return
+    const fallback = activeEnv?.localStartPath ?? getLocalFilesBase()?.base ?? ''
     void (async () => {
-      const ok = await navigateLocalTo(newLocal)
-      if (!ok && normLocal(newLocal) !== normLocal(fallback)) {
+      const ok = await navigateLocalTo(target)
+      if (!ok && fallback && normLocal(target) !== normLocal(fallback))
         void navigateLocalTo(fallback)
-      }
     })()
   }
 
-  async function navigateLocal(entry: FileEntry): Promise<void> {
+  /** Opens a remote folder by path; with linked folders the local pane follows. */
+  function jumpRemote(virtual: string): void {
+    void navigateRemoteTo(virtual)
+    if (!mirrorNav) return
+    const target = localPathForRemote(virtual)
+    if (target) {
+      void navigateLocalTo(target)
+    } else if (pathsMatch) {
+      const steps = pathSegmentCount(remotePath) - pathSegmentCount(virtual)
+      let localTarget = localPath
+      for (let i = 0; i < steps; i++) localTarget = localParentPath(localTarget)
+      if (steps > 0) void navigateLocalTo(localTarget)
+    }
+  }
+
+  // Sidebar pinned / recent folders.
+  useEffect(() => {
+    if (remoteRequest && activeEnv) jumpRemote(remoteRequest.path)
+  }, [remoteRequest?.nonce])
+
+  async function openLocal(entry: FileEntry): Promise<void> {
     if (entry.type !== 'directory') return
     const isMirror = !!(activeEnv && mirrorCandidateKeys?.has(diffKey(entry)))
     await navigateLocalTo(entry.path)
     if (isMirror) {
-      // Use the actual remote folder name to handle case differences (e.g. Scripts vs scripts)
+      // Use the remote folder's own casing (e.g. Scripts vs scripts).
       const remoteMatch = remoteEntries.find(
         (e) => e.type === 'directory' && e.name.toLowerCase() === entry.name.toLowerCase()
       )
       const name = remoteMatch?.name ?? entry.name
-      const remoteTarget = remotePath === '/' ? `/${name}` : `${remotePath}/${name}`
-      await navigateRemoteTo(remoteTarget)
+      await navigateRemoteTo(remotePath === '/' ? `/${name}` : `${remotePath}/${name}`)
     }
   }
 
-  async function navigateRemote(entry: FileEntry): Promise<void> {
+  async function openRemote(entry: FileEntry): Promise<void> {
     if (!activeEnv || entry.type !== 'directory') return
     const isMirror = mirrorCandidateKeys?.has(diffKey(entry)) ?? false
     await navigateRemoteTo(entry.path)
     if (isMirror) {
-      // Use the actual local folder name to handle case differences
       const localMatch = localEntries.find(
         (e) => e.type === 'directory' && e.name.toLowerCase() === entry.name.toLowerCase()
       )
       const sep = localPath.includes('\\') ? '\\' : '/'
       const name = localMatch?.name ?? entry.name
-      const localTarget = localPath ? `${localPath}${sep}${name}` : name
-      await navigateLocalTo(localTarget)
+      await navigateLocalTo(localPath ? `${localPath}${sep}${name}` : name)
     }
   }
 
-  function startUpload(
-    localPaths: string[],
-    targetRemotePath: string,
-    overwriteFiles: boolean
-  ): void {
-    if (!activeEnv) return
-    const batchId = nanoid()
-    for (const p of localPaths) {
-      const jobId = nanoid()
-      addJob({
-        id: jobId,
-        batchId,
-        direction: 'upload',
-        label: baseName(p),
-        remotePath: targetRemotePath,
-        localPath: p,
-        status: 'queued',
-        transferred: 0,
-        total: 1
-      })
-      window.dw.files.upload(activeEnv.name, [p], targetRemotePath, overwriteFiles, jobId)
-    }
-  }
-
+  // ── Actions ────────────────────────────────────────────────────────────────
   async function handleUpload(localPaths: string[], targetRemotePath: string): Promise<void> {
-    if (!activeEnv) return
+    if (!activeEnv || localPaths.length === 0) return
     if (targetRemotePath === '/' || targetRemotePath === '') {
       showToast(
-        'Uploads to the remote root aren\u2019t allowed. Open a folder (Files, Images, Templates\u2026) and drop there.',
+        'Uploads to the top of /Files aren’t allowed. Open a folder (Files, Images, Templates…) first.',
         'warning'
       )
       return
     }
-    // We can only detect name conflicts when dropping into the folder currently
-    // shown in the remote pane AND it's fully loaded. Otherwise (a subfolder
-    // drop, or a partially-loaded folder) we can't see what's there \u2014 default to
-    // overwrite so updates land instead of being silently skipped.
-    const canDetect = targetRemotePath === remotePath && !remoteHasMore
-    if (canDetect) {
-      const remoteNames = new Set(remoteEntries.map((e) => e.name))
-      const conflicts = localPaths.filter((p) => remoteNames.has(baseName(p)))
-      if (conflicts.length > 0) {
-        // Ask before overwriting \u2014 most uploads mean to update, so Replace is the
-        // default, but skipping (and cancelling) stays available.
-        setPendingUpload({
-          localPaths,
-          targetRemotePath,
-          conflicts: conflicts.length,
-          total: localPaths.length
-        })
-        return
-      }
-      startUpload(localPaths, targetRemotePath, false) // nothing to overwrite
+    // Ask before replacing: if any of the files already exist on the server, let
+    // the user pick replace / upload missing / cancel. If the check itself fails,
+    // upload without replacing — errors surface per job.
+    const check = await window.dw.files.checkConflicts(activeEnv.name, localPaths, targetRemotePath)
+    if (check.ok && check.data && check.data.conflicts.length > 0) {
+      setPendingUpload({
+        localPaths,
+        targetRemotePath,
+        conflictCount: check.data.conflicts.length,
+        totalCount: check.data.totalFiles
+      })
       return
     }
-    startUpload(localPaths, targetRemotePath, true)
+    startUpload(activeEnv.name, localPaths, targetRemotePath, false)
   }
 
-  async function handleDownload(remotePaths: string[]): Promise<void> {
-    if (!activeEnv) return
-    const batchId = nanoid()
-    const targetLocalPath = localPath
-    let anyOk = false
-    for (const remotePath of remotePaths) {
-      const jobId = nanoid()
-      const label = remotePath.split('/').filter(Boolean).pop() ?? remotePath
-      addJob({
-        id: jobId,
-        batchId,
-        direction: 'download',
-        label,
-        remotePath,
-        localPath: targetLocalPath,
-        status: 'active',
-        transferred: 0,
-        total: 1
-      })
-      const result = await window.dw.files.download(activeEnv.name, remotePath, targetLocalPath)
-      if (result.ok) anyOk = true
-      useTransferStore.getState().updateJob(jobId, {
-        status: result.ok ? 'done' : 'error',
-        transferred: result.ok ? 1 : 0,
-        error: result.error
-      })
+  function handleDownload(remotePaths: string[], targetLocalDir = localPath): void {
+    if (!activeEnv || remotePaths.length === 0) return
+    if (!targetLocalDir) {
+      showToast('Open a folder on this computer to download into.', 'warning')
+      return
     }
-    // Reload the local pane if the download target is still the folder shown.
-    if (anyOk && useFileStore.getState().localPath === targetLocalPath) {
-      void loadLocal(targetLocalPath)
-    }
+    void startDownload(activeEnv.name, remotePaths, targetLocalDir)
   }
 
   async function handleDelete(paths: string[]): Promise<void> {
@@ -533,11 +487,9 @@ export default function DualPaneBrowser(): React.JSX.Element {
     setRemoteLoading(true)
     for (const p of paths) {
       const result = await window.dw.files.delete(activeEnv.name, p)
-      if (!result.ok) {
-        showToast(result.error ?? `Failed to delete ${p}`, 'error')
-      }
+      if (!result.ok) showToast(result.error ?? `Failed to delete ${p}`, 'error')
     }
-    await loadRemote(activeEnv.name, remotePath)
+    await refreshRemote()
     setRemoteLoading(false)
     setSelected('remote', [])
   }
@@ -545,202 +497,293 @@ export default function DualPaneBrowser(): React.JSX.Element {
   async function handleRename(filePath: string, newName: string): Promise<void> {
     if (!activeEnv) return
     const result = await window.dw.files.rename(activeEnv.name, filePath, newName)
-    if (!result.ok) {
-      showToast(result.error ?? 'Rename failed', 'error')
+    if (!result.ok) showToast(result.error ?? 'Rename failed', 'error')
+    setRemoteLoading(true)
+    await refreshRemote()
+    setRemoteLoading(false)
+  }
+
+  // Returns an error message for the dialog, or null when everything moved.
+  async function handleMove(paths: string[], targetDir: string): Promise<string | null> {
+    if (!activeEnv) return 'No environment selected.'
+    let firstError: string | null = null
+    for (const p of paths) {
+      const result = await window.dw.files.move(activeEnv.name, p, targetDir)
+      if (!result.ok && !firstError) firstError = result.error ?? `Couldn’t move ${p}`
     }
     setRemoteLoading(true)
-    await loadRemote(activeEnv.name, remotePath)
+    await refreshRemote()
     setRemoteLoading(false)
+    if (!firstError) {
+      setSelected('remote', [])
+      const n = paths.length
+      showToast(
+        `Moved ${n === 1 ? '1 item' : `${n} items`} to ${toDisplayRemotePath(targetDir)}`,
+        'success'
+      )
+    }
+    return firstError
+  }
+
+  async function handleCreateFolder(name: string): Promise<string | null> {
+    if (!activeEnv) return 'No environment selected.'
+    const result = await window.dw.files.createDirectory(activeEnv.name, remotePath, name)
+    if (!result.ok) return result.error ?? 'Could not create the folder.'
+    setShowNewFolder(false)
+    setRemoteLoading(true)
+    await refreshRemote()
+    setRemoteLoading(false)
+    return null
   }
 
   async function handleReveal(path: string): Promise<void> {
     const result = await window.dw.fs.reveal(path)
-    if (!result.ok) {
+    if (!result.ok)
       showToast(result.error ?? 'Could not open the file in your file manager.', 'error')
-    }
   }
 
   async function handleOpenDialog(): Promise<void> {
-    const result = await window.dw.fs.openDialog(['openFile', 'multiSelections', 'openDirectory'])
+    const result = await window.dw.fs.openDialog(['openFile', 'multiSelections'])
     if (result.ok && result.data && result.data.paths.length > 0) {
       void handleUpload(result.data.paths, remotePath)
     }
   }
 
+  // ── Derived view state ─────────────────────────────────────────────────────
   const localSelected = selected.pane === 'local' ? selected.paths : []
   const remoteSelected = selected.pane === 'remote' ? selected.paths : []
-
   const isLoading = localLoading || remoteLoading
-  const mirrorActive = mirrorNav && pathsMatch
-  const stableMirrorActiveRef = useRef(mirrorActive)
-  if (!isLoading) stableMirrorActiveRef.current = mirrorActive
-  const stableMirrorActive = isLoading ? stableMirrorActiveRef.current : mirrorActive
-
   const localOnFiles = !!getDwRelativeTail(localPath)
-  const remoteOnFiles =
-    !!getDwRelativeTail(toDisplayRemotePath(remotePath)) &&
-    (!!getDwRelativeTail(localPath) || !!activeEnv?.localStartPath)
+  const remoteOnFiles = !!getDwRelativeTail(toDisplayRemotePath(remotePath))
 
-  const [matchLocalExists, setMatchLocalExists] = useState(true)
-  useEffect(() => {
-    if (!remoteOnFiles) {
-      setMatchLocalExists(true)
-      return
-    }
-    const filesBase = getLocalFilesBase()
-    if (!filesBase) {
-      setMatchLocalExists(false)
-      return
-    }
-    const { base, sep } = filesBase
-    const relParts = remotePath.split('/').filter(Boolean)
-    const target = base + (relParts.length > 0 ? sep + relParts.join(sep) : '')
-    let cancelled = false
-    void window.dw.fs.list(target).then((r) => {
-      if (!cancelled) setMatchLocalExists(r.ok)
+  function visible(entries: FileEntry[], pane: Pane): FileEntry[] {
+    const q = query.trim().toLowerCase()
+    return entries.filter((e) => {
+      if (q && !e.name.toLowerCase().includes(q)) return false
+      if (activeFilter === 'all') return true
+      const s: DiffStatus | undefined = diffMap.get(diffKey(e))
+      if (activeFilter === 'local-only' && pane === 'remote') return false
+      if (activeFilter === 'remote-only' && pane === 'local') return false
+      return s === activeFilter
     })
-    return () => {
-      cancelled = true
-    }
-  }, [remotePath, localPath, activeEnv?.name, remoteOnFiles])
+  }
 
-  const diffCounts = countByStatus(diffMap)
-  const localFilterStatuses = highlightedStatuses.filter(
-    (s) => s !== 'remote-only' && diffCounts[s] > 0
-  )
-  const remoteFilterStatuses = highlightedStatuses.filter(
-    (s) => s !== 'local-only' && diffCounts[s] > 0
-  )
-  const visibleLocalEntries =
-    filterActive && diffMap.size > 0 && localFilterStatuses.length > 0
-      ? localEntries.filter((e) => {
-          const s = diffMap.get(diffKey(e))
-          return s !== undefined && localFilterStatuses.includes(s)
-        })
-      : localEntries
-  const visibleRemoteEntries =
-    filterActive && diffMap.size > 0 && remoteFilterStatuses.length > 0
-      ? remoteEntries.filter((e) => {
-          const s = diffMap.get(diffKey(e))
-          return s !== undefined && remoteFilterStatuses.includes(s)
-        })
-      : remoteEntries
+  const filters: { value: StatusFilter; label: string }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'different', label: `Changed · ${counts.different}` },
+    { value: 'local-only', label: `Not on server · ${counts['local-only']}` },
+    { value: 'remote-only', label: `Only on server · ${counts['remote-only']}` }
+  ].filter((f) => f.value === 'all' || counts[f.value as DiffStatus] > 0) as {
+    value: StatusFilter
+    label: string
+  }[]
 
-  const dropZoneStyle: React.CSSProperties = {
-    padding: '7px 12px',
-    borderTop: '1px solid var(--border)',
-    fontSize: 10,
-    color: 'var(--text-subtle)',
-    textAlign: 'center',
-    transition: 'color 80ms ease-out'
+  // Linked-folders indicator text and match buttons.
+  let linkLabel: string
+  if (!mirrorNav) linkLabel = 'Link folders'
+  else if (pathsMatch) linkLabel = 'Folders linked'
+  else linkLabel = 'Linked — open matching /Files folders to navigate together'
+  const showMatch = mirrorNav && !pathsMatch && !isLoading && (localOnFiles || remoteOnFiles)
+  const canMatchLocal = remoteOnFiles && !!getLocalFilesBase()
+
+  const remoteLabel = activeEnv ? (
+    <>
+      {envLabel(activeEnv)}
+      {envKind(activeEnv) !== 'development' && (
+        <>
+          {' · '}
+          <span
+            style={{
+              color: production ? 'var(--chip-danger-fg)' : 'var(--chip-changed-fg)',
+              fontWeight: 500
+            }}
+          >
+            {envKindLabel(envKind(activeEnv))}
+          </span>
+        </>
+      )}
+    </>
+  ) : null
+
+  // Each pane: a label above a bordered box holding the path bar and the list.
+  const paneStyle: React.CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    minWidth: 0
+  }
+  const paneLabelStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
+    height: 20,
+    padding: '0 4px',
+    fontSize: 13,
+    fontWeight: 500,
+    color: 'var(--text-muted)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden'
+  }
+  const cardStyle: React.CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    flex: 1,
+    minWidth: 0,
+    minHeight: 0,
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--r-lg)',
+    background: 'var(--pane-bg)',
+    overflow: 'hidden'
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <header
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 12,
+          padding: '18px 24px 10px'
+        }}
+      >
+        <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em', flex: 1 }}>Browse</h1>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            height: 38,
+            width: 240,
+            padding: '0 14px',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 'var(--r-full)',
+            color: 'var(--text-subtle)'
+          }}
+        >
+          <SearchIcon />
+          <input
+            type="search"
+            placeholder="Filter this folder"
+            aria-label="Filter this folder"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--text)',
+              fontSize: 13,
+              flex: 1,
+              minWidth: 0
+            }}
+          />
+        </label>
+        {activeEnv && (
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => startSync({ localPath, remotePath })}
+            title="Compare these two folders and sync them"
+          >
+            <SyncIcon />
+            Sync folder
+          </button>
+        )}
+      </header>
+
       {activeEnv && (
-        <CompareToolbar
-          mode={compareMode}
-          onModeChange={setCompareMode}
-          diffMap={diffMap}
-          highlightedStatuses={highlightedStatuses}
-          onToggleStatus={toggleHighlightedStatus}
-          mirrorNav={mirrorNav}
-          onMirrorNavChange={setMirrorNav}
-          pathsMatch={pathsMatch}
-          filterActive={filterActive}
-          onFilterChange={setFilterActive}
-          localOnFiles={localOnFiles}
-          remoteOnFiles={remoteOnFiles}
-          matchLocalPathExists={matchLocalExists}
-          onMatchRemoteToLocal={matchRemoteToLocal}
-          onMatchLocalToRemote={matchLocalToRemote}
-          isLoading={localLoading || remoteLoading}
-          rightSlot={
-            remoteHasMore || remoteLoadedAll ? (
-              remoteHasMore ? (
-                <>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--text-muted)',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      minWidth: 0
-                    }}
-                    title={`Uploads here overwrite matching files${compareMode !== 'off' ? '. Compare is paused until all items load.' : '.'}`}
-                  >
-                    Showing first {remoteEntries.length.toLocaleString()} of{' '}
-                    {remoteTotalCount.toLocaleString()} ·{' '}
-                    <span style={{ color: 'var(--warning)' }}>uploads overwrite</span>
-                    {compareMode !== 'off' ? ' · compare paused' : ''}
-                  </span>
-                  <button
-                    type="button"
-                    className="toolbar-btn"
-                    disabled={loadingAll}
-                    onClick={() => {
-                      setLoadingAll(true)
-                      void loadAllRemote().finally(() => setLoadingAll(false))
-                    }}
-                    style={{
-                      flexShrink: 0,
-                      height: 22,
-                      padding: '0 8px',
-                      fontSize: 10,
-                      borderRadius: 'var(--r-sm)',
-                      border: '1px solid var(--border-strong)',
-                      background: 'var(--surface-raised)',
-                      color: 'var(--text)',
-                      cursor: loadingAll ? 'default' : 'pointer',
-                      opacity: loadingAll ? 0.6 : 1,
-                      whiteSpace: 'nowrap'
-                    }}
-                  >
-                    {loadingAll ? 'Loading…' : `Load all ${remoteTotalCount.toLocaleString()}`}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span
-                    style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
-                    title="Large folders may be slow to render."
-                  >
-                    Showing all {remoteTotalCount.toLocaleString()} items
-                  </span>
-                  <button
-                    type="button"
-                    className="toolbar-btn"
-                    onClick={() => {
-                      setRemoteLoading(true)
-                      void loadRemote(activeEnv.name, remotePath).finally(() =>
-                        setRemoteLoading(false)
-                      )
-                    }}
-                    style={{
-                      flexShrink: 0,
-                      height: 22,
-                      padding: '0 8px',
-                      fontSize: 10,
-                      borderRadius: 'var(--r-sm)',
-                      border: '1px solid var(--border-strong)',
-                      background: 'var(--surface-raised)',
-                      color: 'var(--text)',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap'
-                    }}
-                  >
-                    Show first page only
-                  </button>
-                </>
-              )
-            ) : null
-          }
-        />
-      )}
-      <div ref={containerRef} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Local pane */}
         <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 6,
+            padding: '2px 24px 12px'
+          }}
+        >
+          {diffMap.size > 0 &&
+            filters.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                className="pill"
+                aria-pressed={activeFilter === f.value}
+                onClick={() => setStatusFilter(f.value)}
+              >
+                {f.label}
+              </button>
+            ))}
+          <select
+            aria-label="Compare"
+            value={compareMode}
+            onChange={(e) => setCompareMode(e.target.value as CompareMode)}
+            style={{
+              height: 32,
+              padding: '0 10px',
+              border: 'none',
+              borderRadius: 'var(--r-full)',
+              background: 'transparent',
+              color: 'var(--text-muted)',
+              fontSize: 13
+            }}
+          >
+            {COMPARE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <div style={{ flex: 1 }} />
+          {showMatch && (
+            <>
+              <button
+                type="button"
+                className="icon-btn"
+                disabled={!localOnFiles}
+                onClick={matchRemoteToLocal}
+                title="Open the matching server folder"
+                aria-label="Open the matching server folder"
+              >
+                <ArrowRightIcon />
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                disabled={!canMatchLocal}
+                onClick={matchLocalToRemote}
+                title="Open the matching folder on this computer"
+                aria-label="Open the matching folder on this computer"
+              >
+                <ArrowLeftIcon />
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            className="pill"
+            aria-pressed={mirrorNav && pathsMatch}
+            onClick={() => setMirrorNav(!mirrorNav)}
+            title={
+              mirrorNav
+                ? 'Stop navigating the panes together'
+                : 'Navigate both panes together when their folders match'
+            }
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
+          >
+            {mirrorNav ? <LinkIcon size={14} /> : <UnlinkIcon size={14} />}
+            {linkLabel}
+          </button>
+        </div>
+      )}
+
+      <div
+        ref={containerRef}
+        style={{ flex: 1, minHeight: 0, display: 'flex', padding: '0 16px 16px' }}
+      >
+        {/* Local pane */}
+        <section
+          aria-label="This computer"
           onMouseDown={(e) => {
             if (e.button === 3) {
               e.preventDefault()
@@ -753,166 +796,63 @@ export default function DualPaneBrowser(): React.JSX.Element {
               if (mirrorNav && pathsMatch) void goForwardRemote()
             }
           }}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            flexBasis: `${splitRatio * 100}%`,
-            flexGrow: 0,
-            flexShrink: 0,
-            overflow: 'hidden',
-            background: 'var(--pane-bg)'
-          }}
+          style={{ ...paneStyle, flexBasis: `${splitRatio * 100}%`, flexGrow: 0, flexShrink: 0 }}
         >
-          <PaneHeader
-            path={localPath}
-            label="Local"
-            mirrorActive={stableMirrorActive}
-            mirrorAccent="var(--accent)"
-            onNavigateUp={() => {
-              void navigateLocalTo(localParentPath(localPath))
-              if (mirrorNav && pathsMatch) void navigateRemoteTo(parentPath(remotePath))
-            }}
-            onRefresh={() => {
-              void loadLocal(localPath)
-              if (mirrorNav && pathsMatch && activeEnv) {
-                setRemoteLoading(true)
-                void loadRemote(activeEnv.name, remotePath).finally(() => setRemoteLoading(false))
-              }
-            }}
-            onNavigateTo={(p) => {
-              const localTarget = p === '' || p === '/' ? '' : p
-              void navigateLocalTo(localTarget)
-              if (mirrorNav) {
-                const relParts = getFilesRelativeParts(localTarget)
-                if (relParts !== null) {
-                  void navigateRemoteTo(relParts.length > 0 ? '/' + relParts.join('/') : '/')
-                }
-              }
-            }}
-            actions={
-              localSelected.length > 1 ? (
-                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                  {localSelected.length} selected
+          <div style={paneLabelStyle}>
+            <MonitorIcon size={15} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              This computer
+              {localSelected.length > 1 && (
+                <span style={{ fontWeight: 400, color: 'var(--text-subtle)' }}>
+                  {' '}
+                  · {localSelected.length} selected
                 </span>
-              ) : undefined
-            }
-          />
-          <FileList
-            diffMap={diffMap}
-            dropTarget
-            entries={visibleLocalEntries}
-            highlightedStatuses={highlightedStatuses}
-            loading={localLoading}
-            onContextMenu={(entry, x, y) => setContextMenu({ entry, x, y, pane: 'local' })}
-            onDoubleClick={(entry) => void navigateLocal(entry)}
-            onDropOnPane={(paths) => void handleDownload(paths)}
-            onSelect={(paths) => {
-              setSelected('local', paths)
-              if (mirrorNav && pathsMatch) {
-                const names = new Set(
-                  paths.map((p) => (p.split(/[\\/]/).pop() ?? '').toLowerCase())
-                )
-                setRemoteMirrorPaths(
-                  remoteEntries
-                    .filter((e) => e.type === 'directory' && names.has(e.name.toLowerCase()))
-                    .map((e) => e.path)
-                )
-              } else {
-                setRemoteMirrorPaths([])
-              }
-              setLocalMirrorPaths([])
-            }}
-            pane="local"
-            selected={
-              localMirrorPaths.length > 0 ? [...localSelected, ...localMirrorPaths] : localSelected
-            }
-            syncCandidates={mirrorCandidateKeys ?? undefined}
-          />
-
-          {/* Conflict banner */}
-          {conflictCount > 0 && (
-            <div
-              style={{
-                padding: '6px 12px',
-                background: 'var(--surface)',
-                borderTop: '1px solid var(--border)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                fontSize: 11
-              }}
-            >
-              <span style={{ color: 'var(--text-muted)' }}>
-                {conflictCount} {conflictCount === 1 ? 'file' : 'files'} already exist on remote.
-              </span>
-              <button
-                type="button"
-                onClick={() => setOverwrite(false)}
-                style={{
-                  fontSize: 11,
-                  padding: '1px 8px',
-                  borderRadius: 'var(--r-sm)',
-                  border: 'none',
-                  cursor: 'pointer',
-                  background: !overwrite ? 'var(--surface-raised)' : 'transparent',
-                  color: !overwrite ? 'var(--text)' : 'var(--text-subtle)'
-                }}
-              >
-                Skip existing
-              </button>
-              <button
-                type="button"
-                onClick={() => setOverwrite(true)}
-                style={{
-                  fontSize: 11,
-                  padding: '1px 8px',
-                  borderRadius: 'var(--r-sm)',
-                  border: 'none',
-                  cursor: 'pointer',
-                  background: overwrite ? 'var(--surface-raised)' : 'transparent',
-                  color: overwrite ? 'var(--text)' : 'var(--text-subtle)'
-                }}
-              >
-                Replace all
-              </button>
-            </div>
-          )}
-
-          {/* Drop zone — accepts OS files and drags from local FileList */}
-          <div
-            style={{ ...dropZoneStyle, cursor: 'pointer' }}
-            onClick={() => void handleOpenDialog()}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault()
-              // Dragged from local FileList rows
-              const raw = e.dataTransfer.getData('application/x-dw-paths')
-              if (raw) {
-                const { paths } = JSON.parse(raw) as { paths: string[]; pane: string }
-                void handleUpload(paths, remotePath)
-                return
-              }
-              // Dragged from OS file explorer
-              const osPaths = Array.from(e.dataTransfer.files).map((f) =>
-                window.dw.fs.getPathForFile(f)
-              )
-              if (osPaths.length > 0) {
-                void handleUpload(osPaths.filter(Boolean), remotePath)
-              }
-            }}
-            onMouseEnter={(e) =>
-              ((e.currentTarget as HTMLElement).style.color = 'var(--text-muted)')
-            }
-            onMouseLeave={(e) =>
-              ((e.currentTarget as HTMLElement).style.color = 'var(--text-subtle)')
-            }
-          >
-            Drop files here or{' '}
-            <span style={{ color: 'var(--accent)', textDecoration: 'underline' }}>
-              click to browse
+              )}
             </span>
           </div>
-        </div>
+          <div style={cardStyle}>
+            <PaneHeader
+              path={localPath}
+              onNavigateUp={() => {
+                void navigateLocalTo(localParentPath(localPath))
+                if (mirrorNav && pathsMatch) void navigateRemoteTo(parentPath(remotePath))
+              }}
+              onRefresh={() => {
+                void loadLocal(localPath)
+                if (mirrorNav && pathsMatch && activeEnv) {
+                  setRemoteLoading(true)
+                  void refreshRemote().finally(() => setRemoteLoading(false))
+                }
+              }}
+              onNavigateTo={(p) => {
+                const localTarget = p === '' || p === '/' ? '' : p
+                void navigateLocalTo(localTarget)
+                if (mirrorNav) {
+                  const relParts = getFilesRelativeParts(localTarget)
+                  if (relParts !== null)
+                    void navigateRemoteTo(relParts.length > 0 ? '/' + relParts.join('/') : '/')
+                }
+              }}
+            />
+            <FileList
+              pane="local"
+              entries={visible(localEntries, 'local')}
+              loading={localLoading}
+              selected={localSelected}
+              onSelect={(paths) => setSelected('local', paths)}
+              onOpen={(entry) => void openLocal(entry)}
+              onMenu={(entry, x, y) => setContextMenu({ entry, x, y, pane: 'local' })}
+              onDropOnPane={(paths, source) => source === 'remote' && handleDownload(paths)}
+              onDropIntoDir={(paths, source, dir) =>
+                source === 'remote' && handleDownload(paths, dir.path)
+              }
+              diffMap={diffMap}
+              sort={sort}
+              onSortChange={setSort}
+              emptyText={query ? 'Nothing matches the filter' : 'This folder is empty'}
+            />
+          </div>
+        </section>
 
         {/* Divider */}
         <div
@@ -924,25 +864,12 @@ export default function DualPaneBrowser(): React.JSX.Element {
             setSplitRatio(0.5)
             localStorage.setItem('dw.splitRatio', '0.5')
           }}
-          style={{
-            flex: '0 0 4px',
-            cursor: 'col-resize',
-            background: dragging ? 'var(--accent)' : 'var(--border)',
-            transition: dragging ? 'none' : 'background 120ms ease',
-            position: 'relative',
-            userSelect: 'none'
-          }}
-          onMouseEnter={(e) => {
-            if (!dragging)
-              (e.currentTarget as HTMLElement).style.background = 'var(--border-strong)'
-          }}
-          onMouseLeave={(e) => {
-            if (!dragging) (e.currentTarget as HTMLElement).style.background = 'var(--border)'
-          }}
+          style={{ flex: '0 0 12px', cursor: 'col-resize' }}
         />
 
         {/* Remote pane */}
-        <div
+        <section
+          aria-label="Server"
           onMouseDown={(e) => {
             if (e.button === 3 && activeEnv) {
               e.preventDefault()
@@ -955,18 +882,22 @@ export default function DualPaneBrowser(): React.JSX.Element {
               if (mirrorNav && pathsMatch) void goForwardLocal()
             }
           }}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            flex: 1,
-            overflow: 'hidden',
-            background: 'var(--pane-bg)'
-          }}
+          style={{ ...paneStyle, flex: 1 }}
         >
-          {!activeEnv ? (
-            showAddEnv ? (
-              <AddEnvModal onDone={() => setShowAddEnv(false)} />
-            ) : (
+          <div style={paneLabelStyle}>
+            <GlobeIcon size={15} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {activeEnv ? remoteLabel : 'Server'}
+              {activeEnv && remoteSelected.length > 1 && (
+                <span style={{ fontWeight: 400, color: 'var(--text-subtle)' }}>
+                  {' '}
+                  · {remoteSelected.length} selected
+                </span>
+              )}
+            </span>
+          </div>
+          <div style={cardStyle}>
+            {!activeEnv ? (
               <div
                 style={{
                   flex: 1,
@@ -974,211 +905,224 @@ export default function DualPaneBrowser(): React.JSX.Element {
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  background: 'var(--bg)',
-                  gap: 16
+                  gap: 14,
+                  padding: 24,
+                  textAlign: 'center'
                 }}
               >
-                <p
-                  style={{
-                    color: 'var(--text-subtle)',
-                    fontSize: 24,
-                    fontFamily: 'var(--font-serif)',
-                    fontStyle: 'italic',
-                    fontWeight: 300,
-                    textAlign: 'center'
-                  }}
-                >
-                  No environment connected.
+                <GlobeIcon size={28} style={{ color: 'var(--text-subtle)' }} />
+                <p style={{ fontSize: 16, fontWeight: 500 }}>No environment connected</p>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 320 }}>
+                  Add a Dynamicweb site to browse its files next to the ones on this computer.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setShowAddEnv(true)}
-                  style={{
-                    padding: '8px 16px',
-                    background: 'var(--accent)',
-                    color: '#fff',
-                    fontSize: 12,
-                    border: 'none',
-                    borderRadius: 'var(--r-sm)',
-                    cursor: 'pointer',
-                    transition: 'background 120ms ease'
-                  }}
-                  onMouseEnter={(e) =>
-                    ((e.currentTarget as HTMLElement).style.background = 'var(--accent-hover)')
-                  }
-                  onMouseLeave={(e) =>
-                    ((e.currentTarget as HTMLElement).style.background = 'var(--accent)')
-                  }
-                >
-                  + Add environment
+                <button type="button" className="btn btn-primary" onClick={openAddEnv}>
+                  <PlusIcon />
+                  Add environment
                 </button>
               </div>
-            )
-          ) : (
-            <>
-              <PaneHeader
-                path={toDisplayRemotePath(remotePath)}
-                label={envLabel(activeEnv)}
-                sublabel={activeEnv.host}
-                mirrorActive={stableMirrorActive}
-                upDisabled={remotePath === '/'}
-                onNavigateUp={() => {
-                  void navigateRemoteTo(parentPath(remotePath))
-                  if (mirrorNav && pathsMatch) void navigateLocalTo(localParentPath(localPath))
-                }}
-                onRefresh={() => {
-                  setRemoteLoading(true)
-                  void refreshRemote().finally(() => setRemoteLoading(false))
-                  if (mirrorNav && pathsMatch) void loadLocal(localPath)
-                }}
-                onNavigateTo={(displayPath) => {
-                  const virtual = displayPath.replace(/^\/Files/, '') || '/'
-                  void navigateRemoteTo(virtual)
-                  if (mirrorNav) {
-                    const filesBase = getLocalFilesBase()
-                    if (filesBase) {
-                      const { base, sep } = filesBase
-                      const relParts = virtual.split('/').filter(Boolean)
-                      void navigateLocalTo(
-                        base + (relParts.length > 0 ? sep + relParts.join(sep) : '')
-                      )
-                    } else if (pathsMatch) {
-                      const steps = pathSegmentCount(remotePath) - pathSegmentCount(virtual)
-                      if (steps > 0) {
-                        let localTarget = localPath
-                        for (let i = 0; i < steps; i++) localTarget = localParentPath(localTarget)
-                        void navigateLocalTo(localTarget)
-                      }
-                    }
-                  }
-                }}
-                actions={
-                  remoteSelected.length > 1 ? (
-                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                      {remoteSelected.length} selected
-                    </span>
-                  ) : undefined
-                }
-              />
-              {remoteError && !remoteLoading && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 8,
-                    padding: '8px 12px',
-                    background: 'var(--danger-surface, rgba(220, 53, 69, 0.08))',
-                    borderBottom: '1px solid var(--border)',
-                    color: 'var(--danger)',
-                    fontSize: 11,
-                    lineHeight: 1.4
+            ) : (
+              <>
+                <PaneHeader
+                  path={toDisplayRemotePath(remotePath)}
+                  upDisabled={remotePath === '/'}
+                  onNavigateUp={() => {
+                    void navigateRemoteTo(parentPath(remotePath))
+                    if (mirrorNav && pathsMatch) void navigateLocalTo(localParentPath(localPath))
                   }}
-                >
-                  <span style={{ flexShrink: 0, fontWeight: 600 }}>⚠</span>
-                  <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
-                    Couldn’t load remote files. {remoteError}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRemoteLoading(true)
-                      void refreshRemote().finally(() => setRemoteLoading(false))
-                    }}
+                  onRefresh={() => {
+                    setRemoteLoading(true)
+                    void refreshRemote().finally(() => setRemoteLoading(false))
+                    if (mirrorNav && pathsMatch) void loadLocal(localPath)
+                  }}
+                  onNavigateTo={(displayPath) =>
+                    jumpRemote(displayPath.replace(/^\/Files/i, '') || '/')
+                  }
+                  actions={
+                    <>
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        aria-label="Upload files"
+                        title="Upload files…"
+                        onClick={() => void handleOpenDialog()}
+                      >
+                        <UploadIcon />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        aria-label="New folder"
+                        title="New folder"
+                        onClick={() => setShowNewFolder(true)}
+                      >
+                        <FolderPlusIcon />
+                      </button>
+                    </>
+                  }
+                />
+                {remoteError && !remoteLoading && (
+                  <div
                     style={{
-                      flexShrink: 0,
-                      fontSize: 11,
-                      padding: '1px 8px',
-                      borderRadius: 'var(--r-sm)',
-                      border: '1px solid var(--border-strong)',
-                      background: 'var(--surface-raised)',
-                      color: 'var(--text)',
-                      cursor: 'pointer'
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 10,
+                      margin: '10px 10px 0',
+                      padding: '10px 12px',
+                      borderRadius: 'var(--r-md)',
+                      background: 'var(--notice-danger-bg)',
+                      color: 'var(--notice-danger-fg)',
+                      fontSize: 13,
+                      lineHeight: 1.45
                     }}
                   >
-                    Retry
-                  </button>
-                </div>
-              )}
-              <FileList
-                diffMap={diffMap}
-                dropTarget
-                entries={visibleRemoteEntries}
-                highlightedStatuses={highlightedStatuses}
-                loading={remoteLoading}
-                onContextMenu={(entry, x, y) => setContextMenu({ entry, x, y, pane: 'remote' })}
-                onDoubleClick={(entry) => void navigateRemote(entry)}
-                onDropIntoDir={(paths, targetDir) => void handleUpload(paths, targetDir.path)}
-                onDropOnPane={(paths) => void handleUpload(paths, remotePath)}
-                onSelect={(paths) => {
-                  setSelected('remote', paths)
-                  if (mirrorNav && pathsMatch) {
-                    const names = new Set(
-                      paths.map((p) => (p.split('/').pop() ?? '').toLowerCase())
-                    )
-                    setLocalMirrorPaths(
-                      localEntries
-                        .filter((e) => e.type === 'directory' && names.has(e.name.toLowerCase()))
-                        .map((e) => e.path)
-                    )
-                  } else {
-                    setLocalMirrorPaths([])
+                    <AlertIcon style={{ marginTop: 2 }} />
+                    <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
+                      Couldn’t load server files. {remoteError}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        setRemoteLoading(true)
+                        void refreshRemote().finally(() => setRemoteLoading(false))
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+                <FileList
+                  pane="remote"
+                  entries={visible(remoteEntries, 'remote')}
+                  loading={remoteLoading}
+                  selected={remoteSelected}
+                  onSelect={(paths) => setSelected('remote', paths)}
+                  onOpen={(entry) => void openRemote(entry)}
+                  onMenu={(entry, x, y) => setContextMenu({ entry, x, y, pane: 'remote' })}
+                  onDropOnPane={(paths, source) =>
+                    source === 'local' && void handleUpload(paths, remotePath)
                   }
-                  setRemoteMirrorPaths([])
-                }}
-                pane="remote"
-                selected={
-                  remoteMirrorPaths.length > 0
-                    ? [...remoteSelected, ...remoteMirrorPaths]
-                    : remoteSelected
-                }
-                syncCandidates={mirrorCandidateKeys ?? undefined}
-              />
-              <div
-                style={dropZoneStyle}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  const raw = e.dataTransfer.getData('application/x-dw-paths')
-                  if (raw) {
-                    const { paths } = JSON.parse(raw) as { paths: string[]; pane: string }
-                    void handleDownload(paths)
+                  onDropIntoDir={(paths, source, dir) => {
+                    if (source === 'local') void handleUpload(paths, dir.path)
+                    else
+                      void handleMove(paths, dir.path).then((err) => err && showToast(err, 'error'))
+                  }}
+                  onDropFiles={(files, dir) => void handleUpload(files, dir?.path ?? remotePath)}
+                  diffMap={diffMap}
+                  sort={sort}
+                  onSortChange={setSort}
+                  emptyText={
+                    query
+                      ? 'Nothing matches the filter'
+                      : 'This folder is empty — drop files here to upload'
                   }
-                }}
-              >
-                Drag remote files here to copy to local folder
-              </div>
-            </>
-          )}
-        </div>
+                />
+              </>
+            )}
+          </div>
+        </section>
       </div>
 
-      {/* Context menu */}
+      {showNewFolder && activeEnv && (
+        <PromptDialog
+          title="New folder"
+          description={
+            <>
+              Create a folder in{' '}
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text)' }}>
+                {toDisplayRemotePath(remotePath)}
+              </span>
+            </>
+          }
+          label="Folder name"
+          submitLabel="Create"
+          busyLabel="Creating…"
+          validate={validateName}
+          onSubmit={handleCreateFolder}
+          onCancel={() => setShowNewFolder(false)}
+        />
+      )}
+
+      {moveTargets && activeEnv && (
+        <PromptDialog
+          title={
+            moveTargets.length === 1
+              ? `Move “${moveTargets[0].split('/').pop()}”`
+              : `Move ${moveTargets.length} items`
+          }
+          description="Type the server folder to move to. Items keep their names; nothing is replaced."
+          label="Destination folder"
+          initialValue={toDisplayRemotePath(remotePath)}
+          mono
+          submitLabel="Move"
+          busyLabel="Moving…"
+          validate={(v) =>
+            fromDisplayRemotePath(v) === null ? 'Destination must be inside /Files' : null
+          }
+          onSubmit={async (v) => {
+            const err = await handleMove(moveTargets, fromDisplayRemotePath(v) ?? '/')
+            if (!err) setMoveTargets(null)
+            return err
+          }}
+          onCancel={() => setMoveTargets(null)}
+        />
+      )}
+
+      {pendingUpload && activeEnv && (
+        <UploadConflictModal
+          conflictCount={pendingUpload.conflictCount}
+          totalCount={pendingUpload.totalCount}
+          targetPath={toDisplayRemotePath(pendingUpload.targetRemotePath)}
+          production={production}
+          onReplace={() => {
+            startUpload(
+              activeEnv.name,
+              pendingUpload.localPaths,
+              pendingUpload.targetRemotePath,
+              true
+            )
+            setPendingUpload(null)
+          }}
+          onSkip={() => {
+            startUpload(
+              activeEnv.name,
+              pendingUpload.localPaths,
+              pendingUpload.targetRemotePath,
+              false
+            )
+            setPendingUpload(null)
+          }}
+          onCancel={() => setPendingUpload(null)}
+        />
+      )}
+
       {contextMenu &&
         (() => {
-          // When right-clicking an entry that's part of the current selection in the same pane,
-          // act on the whole selection. Otherwise act on just the clicked entry.
+          // A right-click on part of the selection acts on the whole selection.
           const selectionPaths = selected.pane === contextMenu.pane ? selected.paths : []
           const targetPaths =
             selectionPaths.includes(contextMenu.entry.path) && selectionPaths.length > 1
               ? selectionPaths
               : [contextMenu.entry.path]
+          const entryPath = contextMenu.entry.path
           return (
             <ContextMenu
               entry={contextMenu.entry}
               targetCount={targetPaths.length}
               hasActiveEnv={!!activeEnv}
+              pinned={pinned.some((p) => p.toLowerCase() === entryPath.toLowerCase())}
               onClose={() => setContextMenu(null)}
               onCopyPath={() =>
                 void navigator.clipboard.writeText(
-                  contextMenu.pane === 'remote'
-                    ? toDisplayRemotePath(contextMenu.entry.path)
-                    : contextMenu.entry.path
+                  contextMenu.pane === 'remote' ? toDisplayRemotePath(entryPath) : entryPath
                 )
               }
               onDelete={() => void handleDelete(targetPaths)}
-              onRename={(newName) => void handleRename(contextMenu.entry.path, newName)}
-              onDownload={() => void handleDownload(targetPaths)}
-              onReveal={() => void handleReveal(contextMenu.entry.path)}
+              onRename={(newName) => void handleRename(entryPath, newName)}
+              onMove={() => setMoveTargets(targetPaths)}
+              onTogglePin={() => togglePin(entryPath)}
+              onDownload={() => handleDownload(targetPaths)}
+              onReveal={() => void handleReveal(entryPath)}
               onUpload={() => void handleUpload(targetPaths, remotePath)}
               pane={contextMenu.pane}
               x={contextMenu.x}
@@ -1186,100 +1130,6 @@ export default function DualPaneBrowser(): React.JSX.Element {
             />
           )
         })()}
-
-      {pendingUpload && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000
-          }}
-          onClick={() => setPendingUpload(null)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--r-sm)',
-              padding: 20,
-              width: 440,
-              maxWidth: '90%',
-              boxShadow: '0 12px 40px rgba(0,0,0,0.4)'
-            }}
-          >
-            <p style={{ fontSize: 13, color: 'var(--text)', margin: '0 0 8px' }}>
-              {pendingUpload.conflicts} of {pendingUpload.total}{' '}
-              {pendingUpload.total === 1 ? 'file' : 'files'} already{' '}
-              {pendingUpload.conflicts === 1 ? 'exists' : 'exist'} in this folder.
-            </p>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
-              Replace the existing {pendingUpload.conflicts === 1 ? 'file' : 'files'}, or skip and
-              upload only new files?
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button
-                type="button"
-                onClick={() => setPendingUpload(null)}
-                style={{
-                  fontSize: 12,
-                  padding: '6px 12px',
-                  borderRadius: 'var(--r-sm)',
-                  border: '1px solid var(--border-strong)',
-                  background: 'transparent',
-                  color: 'var(--text-subtle)',
-                  cursor: 'pointer'
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const p = pendingUpload
-                  setPendingUpload(null)
-                  startUpload(p.localPaths, p.targetRemotePath, false)
-                }}
-                style={{
-                  fontSize: 12,
-                  padding: '6px 12px',
-                  borderRadius: 'var(--r-sm)',
-                  border: '1px solid var(--border-strong)',
-                  background: 'var(--surface-raised)',
-                  color: 'var(--text)',
-                  cursor: 'pointer'
-                }}
-              >
-                Skip existing
-              </button>
-              <button
-                type="button"
-                autoFocus
-                onClick={() => {
-                  const p = pendingUpload
-                  setPendingUpload(null)
-                  startUpload(p.localPaths, p.targetRemotePath, true)
-                }}
-                style={{
-                  fontSize: 12,
-                  padding: '6px 12px',
-                  borderRadius: 'var(--r-sm)',
-                  border: '1px solid var(--accent)',
-                  background: 'var(--accent)',
-                  color: '#fff',
-                  cursor: 'pointer'
-                }}
-              >
-                Replace all
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

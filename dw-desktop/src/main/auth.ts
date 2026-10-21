@@ -1,6 +1,6 @@
 import { getApiKey, getOAuthCredentials } from './credentials'
 import { debugRequest, debugResponse } from './debug'
-import { humanizeAuthError } from '../shared/authErrors'
+import { FILE_TRANSFER_UNSUPPORTED, humanizeAuthError } from '../shared/authErrors'
 import type { ConnectionStatus, StoredEnv } from '../shared/types'
 
 interface OAuthCacheEntry {
@@ -102,6 +102,24 @@ export async function resolveAuthHeader(env: StoredEnv): Promise<string> {
   throw new Error(`Unknown authType "${env.authType}"`)
 }
 
+// The app talks only to the File Transfer API, so the connection test probes it
+// directly: `entries/exists` on the files root is cheap and needs the same auth.
+function fileTransferProbeUrl(base: string): string {
+  return `${base}/Admin/Api/FileTransfer/entries/exists?path=`
+}
+
+async function probeResult(
+  response: Response,
+  env: StoredEnv,
+  prefix: string
+): Promise<ConnectionStatus> {
+  if (response.ok) return { connected: true }
+  // A 404 from the probe means the route is missing: the site's Dynamicweb version
+  // predates the File Transfer API.
+  if (response.status === 404) return { connected: false, error: FILE_TRANSFER_UNSUPPORTED }
+  return { connected: false, error: humanizeAuthError(`${prefix} ${response.status}`, env) }
+}
+
 export type TestCredentials =
   | { authType: 'apiKey'; apiKey: string }
   | { authType: 'oauth'; clientId: string; clientSecret: string }
@@ -115,18 +133,10 @@ export async function testConnection(
     const base = `${env.protocol}://${env.host}`
 
     if (credentials.authType === 'apiKey') {
-      // Use DirectoryAll — a real endpoint the CLI uses to verify auth
-      const response = await fetch(
-        `${base}/Admin/Api/DirectoryAll?DirectoryPath=/&recursive=false&includeFiles=false`,
-        { headers: { Authorization: `Bearer ${credentials.apiKey}` } }
-      )
-      if (!response.ok) {
-        return {
-          connected: false,
-          error: humanizeAuthError(`Server returned ${response.status}`, env)
-        }
-      }
-      return { connected: true }
+      const response = await fetch(fileTransferProbeUrl(base), {
+        headers: { Authorization: `Bearer ${credentials.apiKey}` }
+      })
+      return probeResult(response, env, 'Server returned')
     }
 
     if (credentials.authType === 'oauth') {
@@ -176,7 +186,10 @@ export async function testConnection(
           connected: false,
           error: humanizeAuthError('OAuth response did not contain a token', env)
         }
-      return { connected: true }
+      const probeResponse = await fetch(fileTransferProbeUrl(base), {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      return probeResult(probeResponse, env, 'Authenticated but API returned')
     }
 
     if (credentials.authType === 'password') {
@@ -192,18 +205,11 @@ export async function testConnection(
           error: humanizeAuthError(`Login failed with status ${loginResponse.status}`, env)
         }
       }
-      // Verify the session can reach the API
-      const verifyResponse = await fetch(
-        `${base}/Admin/Api/DirectoryAll?DirectoryPath=/&recursive=false&includeFiles=false`,
-        { headers: { Cookie: loginResponse.headers.get('set-cookie') ?? '' } }
-      )
-      if (!verifyResponse.ok) {
-        return {
-          connected: false,
-          error: humanizeAuthError(`Authenticated but API returned ${verifyResponse.status}`, env)
-        }
-      }
-      return { connected: true }
+      // Verify the session can reach the File Transfer API
+      const verifyResponse = await fetch(fileTransferProbeUrl(base), {
+        headers: { Cookie: loginResponse.headers.get('set-cookie') ?? '' }
+      })
+      return probeResult(verifyResponse, env, 'Authenticated but API returned')
     }
 
     return { connected: false, error: 'Unknown auth type' }

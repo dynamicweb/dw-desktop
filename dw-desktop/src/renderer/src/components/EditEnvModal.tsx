@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEnvStore } from '../stores/envStore'
-import type { StoredEnv } from '../../../shared/types'
+import {
+  ENV_KINDS,
+  envKind,
+  envKindLabel,
+  type EnvKind,
+  type StoredEnv
+} from '../../../shared/types'
 
 type AuthTab = 'oauth' | 'apiKey' | 'password'
 
@@ -15,9 +21,7 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
   const [displayName, setDisplayName] = useState(env.displayName ?? env.name)
   const [host, setHost] = useState(`${env.protocol}://${env.host}`)
   const [localStartPath, setLocalStartPath] = useState(env.localStartPath ?? '')
-  const [listPageSize, setListPageSize] = useState(
-    env.listPageSize ? String(env.listPageSize) : ''
-  )
+  const [kind, setKind] = useState<EnvKind>(envKind(env))
   const [saving, setSaving] = useState(false)
 
   // Auth — secrets (API key, client secret, password) are write-only and start
@@ -93,17 +97,12 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
   function buildEnv(): StoredEnv {
     const trimmedStart = localStartPath.trim()
     const trimmedDisplay = displayName.trim()
-    const parsedPageSize = Math.floor(Number(listPageSize.trim()))
-    const validPageSize =
-      listPageSize.trim() !== '' && Number.isFinite(parsedPageSize) && parsedPageSize > 0
-        ? parsedPageSize
-        : undefined
     return {
       ...env,
-      listPageSize: validPageSize,
       host: cleanHost(host),
       protocol: detectProtocol(host),
       authType: authTab,
+      kind,
       displayName: trimmedDisplay && trimmedDisplay !== env.name ? trimmedDisplay : undefined,
       localStartPath: trimmedStart || undefined
     }
@@ -172,49 +171,52 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
 
   const inputStyle: React.CSSProperties = {
     width: '100%',
-    background: 'var(--bg)',
+    height: 38,
+    background: 'var(--surface)',
     border: '1px solid var(--border-strong)',
     borderRadius: 'var(--r-sm)',
-    padding: '8px 12px',
-    fontSize: 13,
+    padding: '0 12px',
+    fontSize: 14,
     fontFamily: 'var(--font-ui)',
-    color: 'var(--text)',
-    transition: 'border-color 120ms ease'
+    color: 'var(--text)'
   }
 
   const labelStyle: React.CSSProperties = {
     display: 'block',
-    fontSize: 11,
-    color: 'var(--text-muted)',
-    marginBottom: 4
+    fontSize: 13,
+    fontWeight: 500,
+    color: 'var(--text)',
+    marginBottom: 6
   }
 
   const btnPrimary: React.CSSProperties = {
-    padding: '8px 16px',
+    height: 38,
+    padding: '0 18px',
     background: 'var(--accent)',
-    color: '#fff',
-    fontSize: 12,
+    color: 'var(--accent-contrast)',
+    fontSize: 14,
+    fontWeight: 500,
     border: 'none',
-    borderRadius: 'var(--r-sm)',
-    cursor: 'pointer',
-    transition: 'background 120ms ease'
+    borderRadius: 'var(--r-full)',
+    cursor: 'pointer'
   }
 
   const btnSecondary: React.CSSProperties = {
-    padding: '8px 16px',
-    background: 'var(--surface-raised)',
-    color: 'var(--text-muted)',
-    fontSize: 12,
-    border: 'none',
-    borderRadius: 'var(--r-sm)',
-    cursor: 'pointer',
-    transition: 'background 120ms ease'
+    height: 38,
+    padding: '0 16px',
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    fontSize: 14,
+    border: '1px solid var(--border-strong)',
+    borderRadius: 'var(--r-full)',
+    cursor: 'pointer'
   }
 
   const hintStyle: React.CSSProperties = {
-    fontSize: 10,
+    fontSize: 12,
     color: 'var(--text-subtle)',
-    marginTop: 6
+    marginTop: 6,
+    lineHeight: 1.45
   }
 
   return (
@@ -230,12 +232,14 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
       <div
         style={{
           position: 'relative',
-          width: 440,
+          width: 480,
+          maxWidth: '92%',
           maxHeight: '90vh',
           overflowY: 'auto',
           background: 'var(--surface)',
           border: '1px solid var(--border)',
-          borderRadius: 'var(--r-md)',
+          borderRadius: 20,
+          boxShadow: 'var(--shadow-pop)',
           padding: 32
         }}
       >
@@ -285,10 +289,8 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
         </button>
         <h2
           style={{
-            fontSize: 22,
-            fontFamily: 'var(--font-serif)',
-            fontStyle: 'italic',
-            fontWeight: 400,
+            fontSize: 20,
+            fontWeight: 600,
             color: 'var(--text)',
             marginBottom: 24
           }}
@@ -337,6 +339,25 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
             </div>
           </div>
           <div>
+            <span style={labelStyle}>Type</span>
+            <div role="radiogroup" aria-label="Environment type" className="segmented">
+              {ENV_KINDS.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  role="radio"
+                  aria-checked={kind === k}
+                  onClick={() => setKind(k)}
+                >
+                  {envKindLabel(k)}
+                </button>
+              ))}
+            </div>
+            <p style={hintStyle}>
+              Production sites get a visible warning before anything is written.
+            </p>
+          </div>
+          <div>
             <label style={labelStyle}>Local start folder (optional)</label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <input
@@ -360,21 +381,6 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
             </div>
             <p style={hintStyle}>Leave empty to open your home folder.</p>
           </div>
-          <div>
-            <label style={labelStyle}>Remote page size (optional)</label>
-            <input
-              style={inputStyle}
-              type="number"
-              min={1}
-              placeholder="500"
-              value={listPageSize}
-              onChange={(e) => setListPageSize(e.target.value)}
-            />
-            <p style={hintStyle}>
-              Entries loaded per remote folder page. Folders larger than this show a “load all”
-              prompt instead of loading eagerly. Leave empty for the default (500).
-            </p>
-          </div>
 
           {/* Authentication */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
@@ -385,7 +391,7 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
                 gap: 4,
                 marginBottom: 12,
                 background: 'var(--surface-raised)',
-                borderRadius: 'var(--r-sm)',
+                borderRadius: 'var(--r-full)',
                 padding: 4
               }}
             >
@@ -400,13 +406,14 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
                   }}
                   style={{
                     flex: 1,
-                    fontSize: 11,
-                    padding: '5px 0',
-                    borderRadius: 'var(--r-sm)',
+                    fontSize: 13,
+                    padding: '7px 0',
+                    borderRadius: 'var(--r-full)',
                     border: 'none',
                     cursor: 'pointer',
                     transition: 'background 120ms ease, color 120ms ease',
-                    background: authTab === tab ? 'var(--surface-hover)' : 'transparent',
+                    background: authTab === tab ? 'var(--surface)' : 'transparent',
+                    boxShadow: authTab === tab ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
                     color: authTab === tab ? 'var(--text)' : 'var(--text-subtle)'
                   }}
                 >

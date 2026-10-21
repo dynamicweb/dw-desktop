@@ -1,32 +1,29 @@
-import { useEffect, useState } from 'react'
-import type { StoredEnv } from '../../shared/types'
+import { useEffect } from 'react'
 import { useEnvStore } from './stores/envStore'
 import { useFileStore } from './stores/fileStore'
 import { initTransferListeners } from './stores/transferStore'
-import DualPaneBrowser from './components/DualPaneBrowser'
-import EnvSidebar from './components/EnvSidebar'
-import TransferQueue from './components/TransferQueue'
-import TransferLog from './components/TransferLog'
+import { useUiStore } from './stores/uiStore'
+import { useWorkspaceStore } from './stores/workspaceStore'
+import ActivityView from './components/ActivityView'
 import AddEnvModal from './components/AddEnvModal'
+import DualPaneBrowser from './components/DualPaneBrowser'
 import EditEnvModal from './components/EditEnvModal'
-import DebugPanel from './components/DebugPanel'
-import ThemeSwitcher from './components/ThemeSwitcher'
+import SettingsView from './components/SettingsView'
+import Sidebar from './components/Sidebar'
+import SyncView from './components/SyncView'
 import ToastContainer from './components/ToastContainer'
-import { useTheme } from './hooks/useTheme'
+import TransferPill from './components/TransferPill'
 import UpdateBanner from './components/UpdateBanner'
-import logoUrl from './assets/logo.svg'
+import { useTheme } from './hooks/useTheme'
 
-const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
-
-type Tab = 'files' | 'log' | 'debug'
+const isMac = navigator.platform.toUpperCase().includes('MAC')
 
 export default function App(): React.JSX.Element {
   const loadEnvs = useEnvStore((s) => s.loadEnvs)
+  const activeEnvName = useEnvStore((s) => s.activeEnv?.name ?? null)
   const loadLocal = useFileStore((s) => s.loadLocal)
-
-  const [tab, setTab] = useState<Tab>('files')
-  const [showAddEnv, setShowAddEnv] = useState(false)
-  const [editEnv, setEditEnv] = useState<StoredEnv | null>(null)
+  const loadWorkspace = useWorkspaceStore((s) => s.load)
+  const { view, showAddEnv, editEnv, closeEnvDialogs } = useUiStore()
   const { theme, setTheme } = useTheme()
 
   useEffect(() => {
@@ -45,6 +42,19 @@ export default function App(): React.JSX.Element {
     return unsubscribe
   }, [])
 
+  // Pinned / recent folders and saved syncs belong to the active environment.
+  useEffect(() => {
+    void loadWorkspace(activeEnvName)
+  }, [activeEnvName, loadWorkspace])
+
+  let content: React.ReactNode
+  if (showAddEnv) content = <AddEnvModal onDone={closeEnvDialogs} />
+  else if (editEnv) content = <EditEnvModal env={editEnv} onDone={closeEnvDialogs} />
+  else if (view === 'sync') content = <SyncView />
+  else if (view === 'activity') content = <ActivityView />
+  else if (view === 'settings') content = <SettingsView theme={theme} onThemeChange={setTheme} />
+  else content = <DualPaneBrowser />
+
   return (
     <div
       style={{
@@ -56,76 +66,31 @@ export default function App(): React.JSX.Element {
         userSelect: 'none'
       }}
     >
-      {/* Tab bar (also acts as the drag region / title bar) */}
-      <div
-        className="drag-region"
-        style={{
-          height: 40,
-          display: 'flex',
-          alignItems: 'center',
-          borderBottom: '1px solid var(--border)',
-          background: 'var(--surface)',
-          paddingLeft: isMac ? 80 : 10,
-          paddingRight: 12,
-          gap: 10,
-          flexShrink: 0
-        }}
-      >
-        <img
-          src={logoUrl}
-          alt=""
-          draggable={false}
-          style={{ width: 20, height: 22, display: 'block', flexShrink: 0 }}
-        />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexGrow: 1 }}>
-          {(['files', 'log', 'debug'] as Tab[]).map((t) => {
-            const active = tab === t
-            return (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTab(t)}
-                className="no-drag nav-btn"
-                style={{
-                  padding: '5px 10px',
-                  fontSize: 12,
-                  fontFamily: 'var(--font-ui)',
-                  background: active ? 'var(--control-hover)' : 'transparent',
-                  border: '1px solid transparent',
-                  borderRadius: 6,
-                  color: active ? 'var(--text)' : 'var(--text-subtle)',
-                  cursor: 'pointer',
-                  transition: 'background 80ms ease-out, color 80ms ease-out'
-                }}
-              >
-                {t === 'files' ? 'Files' : t === 'log' ? 'Transfer log' : 'Debug'}
-              </button>
-            )
-          })}
-        </div>
-        <div className="no-drag">
-          <ThemeSwitcher theme={theme} onChange={setTheme} />
-        </div>
-      </div>
-
-      {/* Main content */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <EnvSidebar onAddEnv={() => setShowAddEnv(true)} onEditEnv={(env) => setEditEnv(env)} />
-        {showAddEnv ? (
-          <AddEnvModal onDone={() => setShowAddEnv(false)} />
-        ) : editEnv ? (
-          <EditEnvModal env={editEnv} onDone={() => setEditEnv(null)} />
-        ) : tab === 'files' ? (
-          <DualPaneBrowser />
-        ) : tab === 'log' ? (
-          <TransferLog />
-        ) : (
-          <DebugPanel />
-        )}
+        <Sidebar />
+        <main
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            position: 'relative',
+            background: 'var(--bg)'
+          }}
+        >
+          {/* macOS has no title bar (hiddenInset): keep the top edge draggable. */}
+          {isMac && (
+            <div
+              className="drag-region"
+              style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 14, zIndex: 1 }}
+            />
+          )}
+          {content}
+        </main>
       </div>
-
       <UpdateBanner />
-      <TransferQueue />
+      <TransferPill />
       <ToastContainer />
     </div>
   )

@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { renameSync, writeFileSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
-import type { AppConfig, PaneState, StoredEnv, ThemeMode } from '../shared/types'
+import type { AppConfig, PaneState, SavedSync, StoredEnv, ThemeMode } from '../shared/types'
 
 function configPath(): string {
   return join(app.getPath('userData'), 'config.json')
@@ -42,7 +42,8 @@ async function initConfig(): Promise<void> {
       environments: parsed.environments ?? [],
       activeEnv: parsed.activeEnv ?? null,
       theme: parsed.theme ?? 'auto',
-      paneState: parsed.paneState ?? {}
+      paneState: parsed.paneState ?? {},
+      syncs: parsed.syncs ?? {}
     }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -74,11 +75,32 @@ export function addEnv(env: StoredEnv): void {
 
 export function removeEnv(name: string): void {
   const { [name]: _removed, ...remainingPanes } = state.paneState
+  const { [name]: _removedSyncs, ...remainingSyncs } = state.syncs ?? {}
   state = {
     ...state,
     environments: state.environments.filter((e) => e.name !== name),
     activeEnv: state.activeEnv === name ? null : state.activeEnv,
-    paneState: remainingPanes
+    paneState: remainingPanes,
+    syncs: remainingSyncs
+  }
+  saveConfig(state)
+}
+
+export function getSyncs(envName: string): SavedSync[] {
+  return state.syncs?.[envName] ?? []
+}
+
+/** Adds or replaces (by id) a saved sync. */
+export function saveSync(envName: string, sync: SavedSync): void {
+  const existing = getSyncs(envName).filter((s) => s.id !== sync.id)
+  state = { ...state, syncs: { ...state.syncs, [envName]: [...existing, sync] } }
+  saveConfig(state)
+}
+
+export function deleteSync(envName: string, id: string): void {
+  state = {
+    ...state,
+    syncs: { ...state.syncs, [envName]: getSyncs(envName).filter((s) => s.id !== id) }
   }
   saveConfig(state)
 }

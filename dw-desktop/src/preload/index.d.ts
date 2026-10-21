@@ -4,9 +4,15 @@ import type {
   FileEntry,
   IPCResult,
   PaneState,
-  RemoteListing,
   StoredEnv,
-  ThemeMode
+  SavedSync,
+  SyncPlan,
+  SyncRequest,
+  SyncRunItem,
+  SyncRunResult,
+  ThemeMode,
+  TransferJob,
+  UploadConflictInfo
 } from '../shared/types'
 
 export interface ProgressPayload {
@@ -23,6 +29,11 @@ export interface DonePayload {
   uploaded?: number
   skipped?: number
   skippedNames?: string[]
+  cancelled?: boolean
+}
+
+export interface SyncFinishedPayload extends SyncRunResult {
+  planId: string
 }
 
 export interface DWDesktopAPI {
@@ -41,7 +52,7 @@ export interface DWDesktopAPI {
     getHints(envName: string): Promise<IPCResult<CredentialHints>>
   }
   files: {
-    list(envName: string, path: string, loadAll?: boolean): Promise<IPCResult<RemoteListing>>
+    list(envName: string, path: string): Promise<IPCResult<FileEntry[]>>
     upload(
       envName: string,
       localPaths: string[],
@@ -49,10 +60,32 @@ export interface DWDesktopAPI {
       overwrite: boolean,
       jobId: string
     ): void
-    download(envName: string, remotePath: string, localPath: string): Promise<IPCResult>
+    checkConflicts(
+      envName: string,
+      localPaths: string[],
+      remotePath: string
+    ): Promise<IPCResult<UploadConflictInfo>>
+    download(
+      envName: string,
+      remotePath: string,
+      localPath: string,
+      jobId?: string
+    ): Promise<IPCResult>
+    cancel(jobIds: string[]): void
     delete(envName: string, path: string): Promise<IPCResult>
     copy(envName: string, source: string, destination: string): Promise<IPCResult>
     rename(envName: string, filePath: string, newName: string): Promise<IPCResult>
+    move(envName: string, sourcePath: string, targetDir: string): Promise<IPCResult>
+    createDirectory(envName: string, parentPath: string, name: string): Promise<IPCResult>
+  }
+  sync: {
+    plan(request: SyncRequest): Promise<IPCResult<SyncPlan>>
+    run(planId: string, items: SyncRunItem[]): void
+  }
+  activity: {
+    /** The saved history; jobs that were running at the last quit come back as failed. */
+    load(): Promise<TransferJob[]>
+    save(jobs: TransferJob[]): void
   }
   fs: {
     list(dirPath: string): Promise<IPCResult<FileEntry[]>>
@@ -65,6 +98,7 @@ export interface DWDesktopAPI {
   on: {
     filesProgress(cb: (payload: ProgressPayload) => void): () => void
     filesDone(cb: (payload: DonePayload) => void): () => void
+    syncFinished(cb: (payload: SyncFinishedPayload) => void): () => void
     debugEntry(cb: (entry: DebugEntry) => void): () => void
     updaterAvailable(cb: (info: { version: string }) => void): () => void
     updaterDownloaded(cb: (info: { version: string }) => void): () => void
@@ -81,6 +115,9 @@ export interface DWDesktopAPI {
     setTheme(theme: ThemeMode): Promise<IPCResult>
     getPaneState(envName: string): Promise<IPCResult<PaneState>>
     setPaneState(envName: string, patch: PaneState): Promise<IPCResult>
+    getSyncs(envName: string): Promise<IPCResult<SavedSync[]>>
+    saveSync(envName: string, sync: SavedSync): Promise<IPCResult>
+    deleteSync(envName: string, id: string): Promise<IPCResult>
   }
 }
 

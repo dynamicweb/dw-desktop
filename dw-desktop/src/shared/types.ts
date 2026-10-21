@@ -7,12 +7,27 @@ export interface StoredEnv {
   protocol: 'http' | 'https'
   authType: 'apiKey' | 'oauth' | 'password'
   localStartPath?: string
-  /**
-   * How many entries to fetch per page when listing a remote folder. Folders
-   * larger than this show a "load all" prompt instead of loading eagerly.
-   * Optional; defaults to 500 when unset.
-   */
-  listPageSize?: number
+  /** What the site is used for. Production gets a visible warning on writes. Unset = development. */
+  kind?: EnvKind
+}
+
+export type EnvKind = 'production' | 'staging' | 'development'
+
+export const ENV_KINDS: EnvKind[] = ['production', 'staging', 'development']
+
+export function envKind(env: Pick<StoredEnv, 'kind'>): EnvKind {
+  return env.kind ?? 'development'
+}
+
+export function envKindLabel(kind: EnvKind): string {
+  switch (kind) {
+    case 'production':
+      return 'Production'
+    case 'staging':
+      return 'Staging'
+    case 'development':
+      return 'Development'
+  }
 }
 
 export function envLabel(env: StoredEnv): string {
@@ -36,6 +51,25 @@ export type ThemeMode = 'light' | 'dark' | 'auto'
 export interface PaneState {
   remotePath?: string
   localPath?: string
+  /** Remote folders pinned in the sidebar (virtual paths, rooted at '/'). */
+  pinned?: string[]
+  /** Most recently visited remote folders, newest first. */
+  recent?: string[]
+}
+
+export type SyncDirection = 'push' | 'pull'
+
+/** A folder pair + direction the user saved to re-run from the sidebar. */
+export interface SavedSync {
+  id: string
+  name: string
+  localPath: string
+  /** Remote folder (virtual path, rooted at '/'). */
+  remotePath: string
+  direction: SyncDirection
+  compareContent: boolean
+  deleteExtra: boolean
+  lastRunAt?: string
 }
 
 export interface AppConfig {
@@ -44,6 +78,8 @@ export interface AppConfig {
   activeEnv: string | null
   theme: ThemeMode
   paneState: Record<string, PaneState>
+  /** Saved syncs per environment name. */
+  syncs?: Record<string, SavedSync[]>
 }
 
 export interface FileEntry {
@@ -54,27 +90,6 @@ export interface FileEntry {
   modified?: string
 }
 
-/**
- * A remote directory listing. The server pages results, so `entries` may hold
- * only the first page: `totalCount` is the true number of items in the folder
- * and `hasMore` indicates that more entries exist beyond what was loaded.
- */
-export interface RemoteListing {
-  entries: FileEntry[]
-  /** Total number of items in the remote folder (reported by the server). */
-  totalCount: number
-  /** True when `entries` is a partial page and more items remain unloaded. */
-  hasMore: boolean
-}
-
-/** Result of an upload: how many files were written vs. skipped as duplicates. */
-export interface UploadOutcome {
-  uploaded: number
-  skipped: number
-  /** Base names of files that already existed and were left untouched. */
-  skippedNames: string[]
-}
-
 export type DiffStatus = 'local-only' | 'remote-only' | 'different' | 'identical'
 
 export type CompareMode = 'off' | 'auto' | 'on'
@@ -82,22 +97,109 @@ export type CompareMode = 'off' | 'auto' | 'on'
 export interface TransferJob {
   id: string
   batchId: string
-  direction: 'upload' | 'download'
+  /** Environment the job runs against. */
+  envName: string
+  /** Shown as the batch title in Activity, e.g. "Deploy Swift-v2". Defaults to a generated one. */
+  batchTitle?: string
+  /** Set for jobs created by a sync run. */
+  fromSync?: boolean
+  direction: 'upload' | 'download' | 'delete'
   label: string
+  /**
+   * Upload: remote target folder. Download: remote file or folder. Delete: remote path.
+   * Together with localPath and overwrite this is enough to retry the job.
+   */
   remotePath: string
+  /** Upload: local file or folder. Download: local target folder. */
   localPath: string
-  status: 'queued' | 'active' | 'done' | 'error' | 'skipped'
+  overwrite?: boolean
+  status: 'queued' | 'active' | 'done' | 'error' | 'skipped' | 'cancelled'
   transferred: number
   total: number
   error?: string
   /** For uploads: base names the server skipped because they already existed. */
   skippedNames?: string[]
+  startedAt: number
+}
+
+/** What a sync would do with one path. */
+export type SyncAction = 'upload' | 'download' | 'replace' | 'delete' | 'conflict' | 'skip'
+
+export interface SyncItem {
+  /** Path relative to the synced folders, '/' separated. */
+  path: string
+  type: 'file' | 'directory'
+  action: SyncAction
+  /** Plain-language reason shown in the preview. */
+  reason: string
+  /** Bytes that would be transferred (the source side's size). */
+  size?: number
+  /** Whether the item is included by default. Conflicts are never included until resolved. */
+  include: boolean
+  /** Remote eTag seen when planning; guards replaces and deletes (If-Match). */
+  remoteETag?: string | null
+}
+
+export interface SyncRequest {
+  envName: string
+  localPath: string
+  /** Remote folder (virtual path, rooted at '/'). */
+  remotePath: string
+  direction: SyncDirection
+  compareContent: boolean
+  deleteExtra: boolean
+}
+
+export interface SyncPlan {
+  /** Handle for running this plan; the main process keeps the details (local paths, hashes). */
+  id: string
+  request: SyncRequest
+  items: SyncItem[]
+  unchanged: number
+  /** True when this folder pair was synced before, so conflicts can be detected. */
+  syncedBefore: boolean
+}
+
+/** One planned item to execute, with how a conflict was resolved. */
+export interface SyncRunItem {
+  jobId: string
+  /** SyncItem.path of the planned item. */
+  path: string
+  /** For conflicts: 'local' = keep this computer's version, 'remote' = keep the server's. */
+  resolution?: 'local' | 'remote'
+}
+
+export interface SyncRunResult {
+  done: number
+  skipped: number
+  failed: number
+  cancelled: boolean
 }
 
 export interface IPCResult<T = unknown> {
   ok: boolean
   data?: T
   error?: string
+}
+
+/** Outcome counts for an upload batch (one files:upload invocation). */
+export interface UploadSummary {
+  uploaded: number
+  /** Files not sent because they already exist remotely (overwrite off). */
+  skipped: number
+  /** Target-relative paths of the skipped files. */
+  skippedNames: string[]
+  failed: number
+  /** Message of the first failure, when failed > 0. */
+  firstError?: string
+}
+
+/** Result of a pre-upload conflict check against the remote target folder. */
+export interface UploadConflictInfo {
+  /** Total number of local files that would be uploaded. */
+  totalFiles: number
+  /** Target-relative paths of files that already exist on the remote. */
+  conflicts: string[]
 }
 
 export interface ConnectionStatus {

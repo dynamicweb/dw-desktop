@@ -5,9 +5,15 @@ import type {
   FileEntry,
   IPCResult,
   PaneState,
-  RemoteListing,
+  SavedSync,
   StoredEnv,
-  ThemeMode
+  SyncPlan,
+  SyncRequest,
+  SyncRunItem,
+  SyncRunResult,
+  ThemeMode,
+  TransferJob,
+  UploadConflictInfo
 } from '../shared/types'
 
 interface ProgressPayload {
@@ -24,6 +30,11 @@ interface DonePayload {
   uploaded?: number
   skipped?: number
   skippedNames?: string[]
+  cancelled?: boolean
+}
+
+interface SyncFinishedPayload extends SyncRunResult {
+  planId: string
 }
 
 const dw = {
@@ -46,8 +57,8 @@ const dw = {
       ipcRenderer.invoke('auth:getHints', { envName })
   },
   files: {
-    list: (envName: string, path: string, loadAll = false): Promise<IPCResult<RemoteListing>> =>
-      ipcRenderer.invoke('files:list', { envName, path, loadAll }),
+    list: (envName: string, path: string): Promise<IPCResult<FileEntry[]>> =>
+      ipcRenderer.invoke('files:list', { envName, path }),
     upload: (
       envName: string,
       localPaths: string[],
@@ -57,14 +68,40 @@ const dw = {
     ): void => {
       ipcRenderer.send('files:upload', { envName, localPaths, remotePath, overwrite, jobId })
     },
-    download: (envName: string, remotePath: string, localPath: string): Promise<IPCResult> =>
-      ipcRenderer.invoke('files:download', { envName, remotePath, localPath }),
+    checkConflicts: (
+      envName: string,
+      localPaths: string[],
+      remotePath: string
+    ): Promise<IPCResult<UploadConflictInfo>> =>
+      ipcRenderer.invoke('files:checkConflicts', { envName, localPaths, remotePath }),
+    download: (
+      envName: string,
+      remotePath: string,
+      localPath: string,
+      jobId?: string
+    ): Promise<IPCResult> =>
+      ipcRenderer.invoke('files:download', { envName, remotePath, localPath, jobId }),
+    cancel: (jobIds: string[]): void => ipcRenderer.send('files:cancel', { jobIds }),
     delete: (envName: string, path: string): Promise<IPCResult> =>
       ipcRenderer.invoke('files:delete', { envName, path }),
     copy: (envName: string, source: string, destination: string): Promise<IPCResult> =>
       ipcRenderer.invoke('files:copy', { envName, source, destination }),
     rename: (envName: string, filePath: string, newName: string): Promise<IPCResult> =>
-      ipcRenderer.invoke('files:rename', { envName, filePath, newName })
+      ipcRenderer.invoke('files:rename', { envName, filePath, newName }),
+    move: (envName: string, sourcePath: string, targetDir: string): Promise<IPCResult> =>
+      ipcRenderer.invoke('files:move', { envName, sourcePath, targetDir }),
+    createDirectory: (envName: string, parentPath: string, name: string): Promise<IPCResult> =>
+      ipcRenderer.invoke('files:createDirectory', { envName, parentPath, name })
+  },
+  sync: {
+    plan: (request: SyncRequest): Promise<IPCResult<SyncPlan>> =>
+      ipcRenderer.invoke('sync:plan', request),
+    run: (planId: string, items: SyncRunItem[]): void =>
+      ipcRenderer.send('sync:run', { planId, items })
+  },
+  activity: {
+    load: (): Promise<TransferJob[]> => ipcRenderer.invoke('activity:load'),
+    save: (jobs: TransferJob[]): void => ipcRenderer.send('activity:save', jobs)
   },
   fs: {
     list: (dirPath: string): Promise<IPCResult<FileEntry[]>> =>
@@ -86,6 +123,12 @@ const dw = {
       const listener = (_: Electron.IpcRendererEvent, payload: DonePayload): void => cb(payload)
       ipcRenderer.on('files:done', listener)
       return () => ipcRenderer.removeListener('files:done', listener)
+    },
+    syncFinished: (cb: (payload: SyncFinishedPayload) => void): (() => void) => {
+      const listener = (_: Electron.IpcRendererEvent, payload: SyncFinishedPayload): void =>
+        cb(payload)
+      ipcRenderer.on('sync:finished', listener)
+      return () => ipcRenderer.removeListener('sync:finished', listener)
     },
     debugEntry: (cb: (entry: unknown) => void): (() => void) => {
       const listener = (_: Electron.IpcRendererEvent, entry: unknown): void => cb(entry)
@@ -117,7 +160,13 @@ const dw = {
     getPaneState: (envName: string): Promise<IPCResult<PaneState>> =>
       ipcRenderer.invoke('settings:getPaneState', envName),
     setPaneState: (envName: string, patch: PaneState): Promise<IPCResult> =>
-      ipcRenderer.invoke('settings:setPaneState', { envName, patch })
+      ipcRenderer.invoke('settings:setPaneState', { envName, patch }),
+    getSyncs: (envName: string): Promise<IPCResult<SavedSync[]>> =>
+      ipcRenderer.invoke('settings:getSyncs', envName),
+    saveSync: (envName: string, sync: SavedSync): Promise<IPCResult> =>
+      ipcRenderer.invoke('settings:saveSync', { envName, sync }),
+    deleteSync: (envName: string, id: string): Promise<IPCResult> =>
+      ipcRenderer.invoke('settings:deleteSync', { envName, id })
   }
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEnvStore } from '../stores/envStore'
-import type { StoredEnv } from '../../../shared/types'
+import { ENV_KINDS, envKindLabel, type EnvKind, type StoredEnv } from '../../../shared/types'
 
 type AuthTab = 'oauth' | 'apiKey' | 'password'
 
@@ -8,7 +8,7 @@ interface Step1Data {
   name: string
   host: string
   localStartPath: string
-  listPageSize: string
+  kind: EnvKind
 }
 
 interface Step2Data {
@@ -57,7 +57,7 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
     name: '',
     host: '',
     localStartPath: '',
-    listPageSize: ''
+    kind: 'development'
   })
   const [step2, setStep2] = useState<Step2Data>({
     authTab: 'oauth',
@@ -98,18 +98,13 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
 
   function buildEnv(): StoredEnv {
     const trimmedStart = step1.localStartPath.trim()
-    const parsedPageSize = Math.floor(Number(step1.listPageSize.trim()))
-    const validPageSize =
-      step1.listPageSize.trim() !== '' && Number.isFinite(parsedPageSize) && parsedPageSize > 0
-        ? parsedPageSize
-        : undefined
     return {
       name: step1.name,
       host: cleanHost(step1.host),
       protocol: detectProtocol(step1.host),
       authType: step2.authTab === 'password' ? 'password' : step2.authTab,
-      ...(trimmedStart ? { localStartPath: trimmedStart } : {}),
-      ...(validPageSize ? { listPageSize: validPageSize } : {})
+      kind: step1.kind,
+      ...(trimmedStart ? { localStartPath: trimmedStart } : {})
     }
   }
 
@@ -171,49 +166,52 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
 
   const inputStyle: React.CSSProperties = {
     width: '100%',
-    background: 'var(--bg)',
+    height: 38,
+    background: 'var(--surface)',
     border: '1px solid var(--border-strong)',
     borderRadius: 'var(--r-sm)',
-    padding: '8px 12px',
-    fontSize: 13,
+    padding: '0 12px',
+    fontSize: 14,
     fontFamily: 'var(--font-ui)',
-    color: 'var(--text)',
-    transition: 'border-color 120ms ease'
+    color: 'var(--text)'
   }
 
   const labelStyle: React.CSSProperties = {
     display: 'block',
-    fontSize: 11,
-    color: 'var(--text-muted)',
-    marginBottom: 4
+    fontSize: 13,
+    fontWeight: 500,
+    color: 'var(--text)',
+    marginBottom: 6
   }
 
   const btnPrimary: React.CSSProperties = {
-    padding: '8px 16px',
+    height: 38,
+    padding: '0 18px',
     background: 'var(--accent)',
-    color: '#fff',
-    fontSize: 12,
+    color: 'var(--accent-contrast)',
+    fontSize: 14,
+    fontWeight: 500,
     border: 'none',
-    borderRadius: 'var(--r-sm)',
-    cursor: 'pointer',
-    transition: 'background 120ms ease'
+    borderRadius: 'var(--r-full)',
+    cursor: 'pointer'
   }
 
   const btnSecondary: React.CSSProperties = {
-    padding: '8px 16px',
-    background: 'var(--surface-raised)',
-    color: 'var(--text-muted)',
-    fontSize: 12,
-    border: 'none',
-    borderRadius: 'var(--r-sm)',
-    cursor: 'pointer',
-    transition: 'background 120ms ease'
+    height: 38,
+    padding: '0 16px',
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    fontSize: 14,
+    border: '1px solid var(--border-strong)',
+    borderRadius: 'var(--r-full)',
+    cursor: 'pointer'
   }
 
   const hintStyle: React.CSSProperties = {
-    fontSize: 10,
+    fontSize: 12,
     color: 'var(--text-subtle)',
-    marginTop: 6
+    marginTop: 6,
+    lineHeight: 1.45
   }
 
   return (
@@ -229,10 +227,12 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
       <div
         style={{
           position: 'relative',
-          width: 440,
+          width: 480,
+          maxWidth: '92%',
           background: 'var(--surface)',
           border: '1px solid var(--border)',
-          borderRadius: 'var(--r-md)',
+          borderRadius: 20,
+          boxShadow: 'var(--shadow-pop)',
           padding: 32
         }}
       >
@@ -286,10 +286,8 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
           <>
             <h2
               style={{
-                fontSize: 22,
-                fontFamily: 'var(--font-serif)',
-                fontStyle: 'italic',
-                fontWeight: 400,
+                fontSize: 20,
+                fontWeight: 600,
                 color: 'var(--text)',
                 marginBottom: 24
               }}
@@ -343,6 +341,25 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
                 )}
               </div>
               <div>
+                <span style={labelStyle}>Type</span>
+                <div role="radiogroup" aria-label="Environment type" className="segmented">
+                  {ENV_KINDS.map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      role="radio"
+                      aria-checked={step1.kind === k}
+                      onClick={() => setStep1((s) => ({ ...s, kind: k }))}
+                    >
+                      {envKindLabel(k)}
+                    </button>
+                  ))}
+                </div>
+                <p style={hintStyle}>
+                  Production sites get a visible warning before anything is written.
+                </p>
+              </div>
+              <div>
                 <label style={labelStyle}>Local start folder (optional)</label>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <input
@@ -369,21 +386,6 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
                   per environment.
                 </p>
               </div>
-              <div>
-                <label style={labelStyle}>Remote page size (optional)</label>
-                <input
-                  style={inputStyle}
-                  type="number"
-                  min={1}
-                  placeholder="500"
-                  value={step1.listPageSize}
-                  onChange={(e) => setStep1((s) => ({ ...s, listPageSize: e.target.value }))}
-                />
-                <p style={hintStyle}>
-                  Entries loaded per remote folder page. Folders larger than this show a “load all”
-                  prompt. Leave empty for the default (500).
-                </p>
-              </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>
               <button
@@ -395,7 +397,7 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
                 type="button"
                 onClick={() => setStep(2)}
               >
-                Next →
+                Next
               </button>
             </div>
           </>
@@ -405,10 +407,8 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
           <>
             <h2
               style={{
-                fontSize: 22,
-                fontFamily: 'var(--font-serif)',
-                fontStyle: 'italic',
-                fontWeight: 400,
+                fontSize: 20,
+                fontWeight: 600,
                 color: 'var(--text)',
                 marginBottom: 16
               }}
@@ -422,7 +422,7 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
                 gap: 4,
                 marginBottom: 24,
                 background: 'var(--surface-raised)',
-                borderRadius: 'var(--r-sm)',
+                borderRadius: 'var(--r-full)',
                 padding: 4
               }}
             >
@@ -433,13 +433,14 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
                   onClick={() => setStep2((s) => ({ ...s, authTab: tab }))}
                   style={{
                     flex: 1,
-                    fontSize: 11,
-                    padding: '5px 0',
-                    borderRadius: 'var(--r-sm)',
+                    fontSize: 13,
+                    padding: '7px 0',
+                    borderRadius: 'var(--r-full)',
                     border: 'none',
                     cursor: 'pointer',
                     transition: 'background 120ms ease, color 120ms ease',
-                    background: step2.authTab === tab ? 'var(--surface-hover)' : 'transparent',
+                    background: step2.authTab === tab ? 'var(--surface)' : 'transparent',
+                    boxShadow: step2.authTab === tab ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
                     color: step2.authTab === tab ? 'var(--text)' : 'var(--text-subtle)'
                   }}
                 >
@@ -528,7 +529,7 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
               <button style={btnSecondary} type="button" onClick={() => setStep(1)}>
-                ← Back
+                Back
               </button>
               <button
                 style={{ ...btnPrimary, opacity: testing ? 0.6 : 1 }}
@@ -536,7 +537,7 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
                 disabled={testing}
                 onClick={() => void handleTest()}
               >
-                {testing ? 'Testing…' : 'Test connection →'}
+                {testing ? 'Testing…' : 'Test connection'}
               </button>
             </div>
           </>
@@ -556,10 +557,8 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
               <div style={{ fontSize: 36, marginBottom: 12, color: 'var(--success)' }}>✓</div>
               <h2
                 style={{
-                  fontSize: 22,
-                  fontFamily: 'var(--font-serif)',
-                  fontStyle: 'italic',
-                  fontWeight: 400,
+                  fontSize: 20,
+                  fontWeight: 600,
                   color: 'var(--text)',
                   marginBottom: 6
                 }}
@@ -572,10 +571,10 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <button style={btnSecondary} type="button" onClick={() => setStep(2)}>
-                ← Back
+                Back
               </button>
               <button style={btnPrimary} type="button" onClick={() => void handleSave()}>
-                Save & open →
+                Save & open
               </button>
             </div>
           </>
