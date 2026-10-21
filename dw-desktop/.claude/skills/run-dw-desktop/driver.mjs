@@ -29,10 +29,13 @@ const HELP = `commands:
                           --profile=<dir> reuses that profile dir across launches;
                           --real uses your normal profile and talks to your real sites.
   ss [name]               screenshot the window -> ${SHOT_DIR}/<name>.png
+  shot <name> <pad> <css> cropped screenshot of the first element matching <css>, padded
+  clip <name> <x> <y> <w> <h>  cropped screenshot of a window region (CSS px)
   nav <View>              click a sidebar item: Browse | Sync | Activity | Settings
   theme <light|dark|auto> switch theme for this window only (not saved)
   click <name>            click a button/link by its accessible name (exact text or aria-label)
   menu <local|remote> <n> hover row n (0-based) of a pane and open its "···" menu
+  move <x> <y>            move the mouse (e.g. away from a row so no hover shows)
   key <Key>               press a key, e.g. Escape, Enter
   type <text>             type into the focused element
   text                    print the visible text of the main area
@@ -88,6 +91,33 @@ const COMMANDS = {
     console.log('screenshot:', f)
   },
 
+  // Cropped screenshot of the first element matching a CSS selector, plus padding.
+  async shot(name, pad, ...selector) {
+    const box = await page.locator(selector.join(' ')).first().boundingBox()
+    if (!box) throw new Error(`no visible element for ${selector.join(' ')}`)
+    const p = Number(pad) || 0
+    // viewportSize() is null for Electron windows; ask the page instead.
+    const view = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+    const x = Math.max(0, box.x - p)
+    const y = Math.max(0, box.y - p)
+    const clip = {
+      x,
+      y,
+      width: Math.min(view.width - x, box.width + 2 * p),
+      height: Math.min(view.height - y, box.height + 2 * p)
+    }
+    const f = path.join(SHOT_DIR, `${name}.png`)
+    await page.screenshot({ path: f, clip })
+    console.log('screenshot:', f)
+  },
+
+  // Cropped screenshot of a window region in CSS pixels.
+  async clip(name, x, y, w, h) {
+    const f = path.join(SHOT_DIR, `${name}.png`)
+    await page.screenshot({ path: f, clip: { x: +x, y: +y, width: +w, height: +h } })
+    console.log('screenshot:', f)
+  },
+
   async nav(label) {
     await page.locator('aside button.nav-item', { hasText: label }).first().click()
     await page.waitForTimeout(800)
@@ -116,6 +146,11 @@ const COMMANDS = {
     await row.getByRole('button', { name: /More actions/ }).click()
     await page.waitForTimeout(300)
     console.log('menu open on', pane, 'row', n)
+  },
+
+  async move(x, y) {
+    await page.mouse.move(Number(x) || 0, Number(y) || 0)
+    console.log('mouse at', x, y)
   },
 
   async key(k) {
