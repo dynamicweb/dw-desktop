@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   envKind,
-  envKindLabel,
   envLabel,
   type CompareMode,
   type DiffStatus,
@@ -34,6 +33,7 @@ import {
   UploadIcon
 } from './Icons'
 import PaneHeader from './PaneHeader'
+import { KindBadge } from './Sidebar'
 import UploadConflictModal from './UploadConflictModal'
 
 interface ContextMenuState {
@@ -591,15 +591,8 @@ export default function DualPaneBrowser(): React.JSX.Element {
       {envLabel(activeEnv)}
       {envKind(activeEnv) !== 'development' && (
         <>
-          {' · '}
-          <span
-            style={{
-              color: production ? 'var(--chip-danger-fg)' : 'var(--chip-changed-fg)',
-              fontWeight: 500
-            }}
-          >
-            {envKindLabel(envKind(activeEnv))}
-          </span>
+          {' '}
+          <KindBadge kind={envKind(activeEnv)} />
         </>
       )}
     </>
@@ -718,15 +711,7 @@ export default function DualPaneBrowser(): React.JSX.Element {
             aria-label="Compare"
             value={compareMode}
             onChange={(e) => setCompareMode(e.target.value as CompareMode)}
-            style={{
-              height: 32,
-              padding: '0 10px',
-              border: 'none',
-              borderRadius: 'var(--r-full)',
-              background: 'transparent',
-              color: 'var(--text-muted)',
-              fontSize: 13
-            }}
+            className="select"
           >
             {COMPARE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>

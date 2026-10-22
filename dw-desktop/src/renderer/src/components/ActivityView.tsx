@@ -338,8 +338,7 @@ export default function ActivityView(): React.JSX.Element {
                 aria-label="Which environments"
                 value={scope}
                 onChange={(e) => setScope(e.target.value as 'env' | 'all')}
-                className="input"
-                style={{ height: 34, borderRadius: 'var(--r-full)', fontSize: 13 }}
+                className="select select-outline"
               >
                 <option value="env">
                   {activeEnv ? `${envLabel(activeEnv)} only` : 'This environment'}

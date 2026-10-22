@@ -390,6 +390,116 @@ select:not(:focus-visible) {
   border-color: var(--text-subtle);
 }
 
+/*
+ * Dropdown: a native <select> opted into the customizable select
+ * (appearance: base-select), so the picker matches .popover / .menu-item.
+ * Ghost pill by default; .select-outline adds a border.
+ */
+.select,
+.select::picker(select) {
+  appearance: base-select;
+}
+.select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 80ms ease-out,
+    color 80ms ease-out;
+}
+.select-outline {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.select:hover,
+.select:open {
+  background: var(--control-hover);
+  color: var(--text);
+}
+.select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.select::picker-icon {
+  content: '';
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  transition: rotate 150ms ease-out;
+}
+.select:open::picker-icon {
+  rotate: 180deg;
+}
+.select::picker(select) {
+  min-width: anchor-size(width);
+  margin-block: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+  opacity: 0;
+  translate: 0 -4px;
+  transition:
+    opacity 120ms ease-out,
+    translate 120ms ease-out,
+    overlay 120ms allow-discrete,
+    display 120ms allow-discrete;
+}
+.select:open::picker(select) {
+  opacity: 1;
+  translate: 0 0;
+}
+@starting-style {
+  .select:open::picker(select) {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+.select option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.select option:hover,
+.select option:focus-visible {
+  background: var(--control-hover);
+  outline: none;
+}
+.select option:checked {
+  font-weight: 500;
+}
+.select option::checkmark {
+  order: 1;
+  content: '';
+  width: 16px;
+  height: 16px;
+  margin-inline-start: auto;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
 /* Status chip. */
 .chip {
   display: inline-flex;
