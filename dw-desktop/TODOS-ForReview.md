@@ -1,9 +1,10 @@
 # TODOS — For Review
 
 Feature gaps identified by comparing DW Desktop against established file-transfer
-tools (Transmit, Cyberduck, FileZilla, WinSCP, Mountain Duck, Beyond Compare).
-Sorted by priority based on day-to-day friction for the target audience: DW
-partners deploying to and maintaining DW10 solutions.
+tools (Transmit, Cyberduck, FileZilla, WinSCP, Mountain Duck, Beyond Compare) and
+against the DynamicWeb CLI v2, which shares the File Transfer API. Re-evaluated
+against v1 in October 2026. Sorted by priority based on day-to-day friction for
+the target audience: DW partners deploying to and maintaining DW10 solutions.
 
 This list deliberately excludes items already tracked in TODOS.md (virtual
 scrolling for the file list).
@@ -43,7 +44,169 @@ is tracking focus between the two panes so the right pane receives the action.
 
 ---
 
+### Exclude rules for sync and upload
+
+**What:** Skip files by pattern in Sync and in folder uploads: a built-in default
+list (`.git/`, `node_modules/`, `.DS_Store`, `Thumbs.db`, `desktop.ini`, `*.tmp`)
+plus per-sync patterns, optionally read from a `.dwignore` file in the local
+folder.
+
+**Why:** Partners deploy from working folders. Today a Deploy sends `.git`, editor
+and OS junk files along with the real changes, and a Get with *Delete files that
+aren't on the other side* would trash local files the server never had.
+
+**Pros:** Every comparable tool has this (WinSCP file masks, FileZilla filename
+filters, Transmit skip rules, Beyond Compare filters, `rsync --exclude`). Saved
+syncs already store options, so per-sync patterns have a home.
+
+**Cons:** Excluded files must be ignored on both sides, or a push with delete would
+remove server files that match a pattern. Users need to see what was skipped.
+
+**Context:** `buildSyncPlan` in `sync.ts` walks the local folder and the server
+`manifest` with no filtering; `uploadFiles` in `dw-api.ts` uploads every file
+under a dropped folder.
+
+**Value:** High — wrong files on production is the most likely deploy mistake left.
+
+**Difficulty:** Low-Medium — a glob matcher applied to both walks; a list of
+skipped paths in the preview; a patterns field on saved syncs.
+
+---
+
+### Open and edit server files
+
+**What:** Double-click a server file to open it: download to a temp folder, open
+it in the default (or a chosen) app, watch it, and upload it back on save. Images
+and text get a quick read-only preview in the app.
+
+**Why:** Hotfixing a template or a config file on a site is a daily task. Today it
+takes a download into some local folder, an edit, and an upload — and
+double-clicking a server file does nothing.
+
+**Pros:** Standard in Transmit, Cyberduck, WinSCP and FileZilla. The upload back
+can use `If-Match` with the eTag from the download, so a file someone else changed
+in the meantime is not overwritten.
+
+**Cons:** Temp files need cleanup, and a stale temp copy must never be uploaded
+over a newer server file. Production needs the same warning as a deploy.
+
+**Context:** `openRemote` in `DualPaneBrowser.tsx` returns early for anything that
+is not a directory. Different from *Auto-upload on local file change* below,
+which watches a whole local folder paired with a server folder.
+
+**Value:** High — the most common one-file workflow, with no good path today.
+
+**Difficulty:** Medium — temp-file lifecycle, a file watcher, and the eTag guard;
+the download and upload code is reused.
+
+---
+
 ## Medium priority — clear workflow value
+
+### Deploy with backup and rollback
+
+**What:** A deploy mode that uploads the local folder to a staging copy on the
+server, switches it in with two renames, and keeps the previous version as a
+backup — plus a **Roll back last deploy** action.
+
+**Why:** Sync replaces files one by one in place. A deploy that fails or is
+cancelled halfway leaves the site with a mix of old and new files, and there is
+no undo once it finished.
+
+**Pros:** The CLI v2 already does this (`dw files deploy --keep-backup`,
+`dw files rollback`, in `bin/transfer/sync.js`), and Sync itself was ported from
+the same file. The CLI records the last deploy's backup in its transfer state;
+`transferState.ts` would get the same field.
+
+**Cons:** Replaces the whole folder, so it only fits folders the local copy fully
+owns (a design, a templates folder), not `/Files` as a whole. Needs server space
+for a second copy.
+
+**Context:** Would sit next to *Deploy to server* in the Sync view, with the same
+preview and production warning.
+
+**Value:** Medium-High — the safe way to deploy to production.
+
+**Difficulty:** Medium — the logic exists in the CLI; the work is UI and
+explaining when to use it instead of a sync.
+
+---
+
+### Transfer between environments
+
+**What:** Sync or copy a server folder directly from one environment to another
+(for example live → staging), without picking a local folder in between.
+
+**Why:** The "copy a live site to staging" scenario in the user guide downloads
+the whole `Files` folder to disk and then deploys it again. That doubles the time
+and needs local space for every file.
+
+**Pros:** Both sides report SHA-256 (`entries/checksum`), so an exact comparison
+needs no local hashing. Transmit and Cyberduck support server-to-server copies.
+
+**Cons:** Data still flows through the user's machine (download → upload per
+file), so it is not faster per byte; it removes the double handling and the disk
+use. A cancelled run must not leave half-written files.
+
+**Context:** `buildSyncPlan` compares a local walk with a remote manifest; a
+second remote manifest in place of the local walk is the core change. The
+database part of the scenario (backup and restore) stays manual.
+
+**Value:** Medium — the documented clone scenario becomes one step.
+
+**Difficulty:** Medium-High — streaming a download into a chunked upload, and a
+two-environment picker in Sync.
+
+---
+
+### Search the server
+
+**What:** Find files by name in a server folder and all its subfolders, with
+results you can open, reveal, download or delete.
+
+**Why:** **Filter this folder** only matches the current folder. Finding a
+template somewhere under `/Files/Templates` means clicking through folders.
+
+**Pros:** The recursive `manifest` already returns every path under a folder, page
+by page. Transmit, Cyberduck and WinSCP all have a find command.
+
+**Cons:** Large trees take time to walk; the search needs progress and cancel.
+
+**Context:** `collectManifest` in `dw-api.ts` already follows the manifest cursor
+for Sync.
+
+**Value:** Medium — saves a lot of clicking on large solutions.
+
+**Difficulty:** Low-Medium — a search field, the manifest walk, and a results
+list that reuses the file list rows.
+
+---
+
+### Compare file contents
+
+**What:** Show a side-by-side text diff of a local and a server file — from a
+*Changed* file in Browse, and from a conflict in the Sync preview.
+
+**Why:** Compare and the Sync preview say a file differs but not how. A conflict
+asks the user to choose *Keep mine* or *Keep server's* without seeing either
+version.
+
+**Pros:** Beyond Compare and WinSCP open a diff from the compare view. A cheap
+first step is opening VS Code (`code --diff`) or a configured diff tool on the two
+files.
+
+**Cons:** Text files only, with a size limit; binary files need a clear "can't
+compare" state.
+
+**Context:** The server file can be downloaded to a temp file with the existing
+download code.
+
+**Value:** Medium — makes conflict resolution an informed choice.
+
+**Difficulty:** Medium for a built-in viewer; Low for handing off to an external
+diff tool.
+
+---
 
 ### Two-way sync
 
@@ -193,9 +356,8 @@ environment repeatedly, and teams want to share the list.
 validation and a merge strategy for conflicts.
 
 **Context:** Environments are switched from the top of the sidebar and managed in
-Settings; each has a fixed type (Production / Staging / Development). Grouping by
-type was considered and dropped — users have about 10 environments and rarely
-switch within a session.
+Settings; each has a fixed type (Production / Staging / Development). The switcher
+already groups environments by type and has a search field.
 
 **Value:** Medium — duplicate and export are the most broadly useful.
 
@@ -229,8 +391,63 @@ a per-file overwrite set instead of one flag.
 
 ---
 
+### Hand a sync over to the CLI
+
+**What:** **Copy as CLI command** on a saved sync: the equivalent
+`dw files sync <local> <remote> [--delete]` (or `dw files diff` for a dry run) with
+the environment's host and auth type, ready for a CI pipeline.
+
+**Why:** The user guide sends automation to the CLI. A partner who set up and
+tested a deploy in the app should not have to work out the same command by hand.
+
+**Pros:** The CLI v2 sync uses the same API and the same plan logic. No transfer
+work in the app.
+
+**Cons:** Only *Deploy to server* maps to a CLI command — the CLI sync is push
+only. Secrets must never be put in the copied text; the command refers to
+environment variables or a `dw env` setup instead.
+
+**Context:** Saved syncs store folders, direction and options; the CLI flags are
+documented in the CLI README (*File Transfer*).
+
+**Value:** Low-Medium — small, but connects the two tools.
+
+**Difficulty:** Low.
+
+---
+
+### Install add-ins
+
+**What:** Upload and install a `.dll` or `.nupkg` add-in on the current
+environment, with the same production warning as a deploy.
+
+**Why:** Partners who build custom code deploy it alongside templates. Today that
+needs the CLI (`dw install`) or the DW backend.
+
+**Pros:** The CLI already does it and uploads through the File Transfer API.
+
+**Cons:** Installing code is riskier than copying files; the result (success,
+queued, failed) must be shown clearly.
+
+**Context:** `dw install [filePath] [--queue]` in the CLI (`bin/commands/install.js`).
+
+**Value:** Low-Medium — useful for developer partners; not a file-transfer feature.
+
+**Difficulty:** Low-Medium — one upload plus the install call and its result.
+
+---
+
 ### Smaller follow-ups
 
+- **Copy on the server.** `copyRemote` (`entries/copy`) and IPC `files:copy` exist
+  but nothing in the UI calls them. Add **Duplicate** and **Copy to folder…** to the
+  server row menu — useful for keeping a copy of a template before editing it.
+- **File info and folder size.** An info panel for a server entry: size, modified,
+  version (eTag) and SHA-256 from `entries/metadata` / `entries/checksum`, and for a
+  folder its total size and file count from `entries/usage` (CLI `stat` / `usage`).
+- **Notify when a long transfer finishes.** An OS notification when a batch or sync
+  ends while the window is in the background, and taskbar/dock progress
+  (`BrowserWindow.setProgressBar`).
 - **Dismiss failed batches in Activity.** *Clear finished* keeps failed batches, and
   the history is now kept for 30 days, so an old failure stays at the top until it is
   retried. Add a dismiss action, or let *Clear finished* remove them.
@@ -261,6 +478,29 @@ NetLimiter) handles this better.
 
 **Difficulty:** Medium — possible via chunked dispatch with artificial delays, but
 the result is imprecise and the implementation is non-trivial.
+
+---
+
+### Tabs or a second window
+
+**What:** Work with two environments at once — browser-style tabs, or **New
+window** opening a second Browse view on another environment.
+
+**Why:** Partners checking staging against production, or moving work between two
+clients' solutions, switch environments back and forth.
+
+**Pros:** Transmit, Cyberduck and WinSCP all offer tabs or multiple windows.
+
+**Cons:** State is per window today (active environment, pane state, the transfer
+pill); tabs touch most stores. *Transfer between environments* covers the main
+reason to want it.
+
+**Context:** Users have about 10 environments and rarely switch within a session,
+so this is a convenience, not a gap.
+
+**Value:** Low.
+
+**Difficulty:** Medium-High — store refactoring for per-tab state.
 
 ---
 
