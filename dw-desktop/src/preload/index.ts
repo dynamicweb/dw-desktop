@@ -30,6 +30,7 @@ interface DonePayload {
   uploaded?: number
   skipped?: number
   skippedNames?: string[]
+  excludedNames?: string[]
   cancelled?: boolean
 }
 
@@ -97,7 +98,9 @@ const dw = {
     plan: (request: SyncRequest): Promise<IPCResult<SyncPlan>> =>
       ipcRenderer.invoke('sync:plan', request),
     run: (planId: string, items: SyncRunItem[]): void =>
-      ipcRenderer.send('sync:run', { planId, items })
+      ipcRenderer.send('sync:run', { planId, items }),
+    inspectLocal: (localPath: string): Promise<IPCResult<{ gitignore: boolean }>> =>
+      ipcRenderer.invoke('sync:inspectLocal', localPath)
   },
   activity: {
     load: (): Promise<TransferJob[]> => ipcRenderer.invoke('activity:load'),

@@ -18,8 +18,10 @@ import {
   uploadOneFile,
   type FileTransferEntry
 } from './dw-api'
+import { loadExclusions, type Exclusions } from './exclude'
 import { createTransferState, type TransferState } from './transferState'
 import type {
+  ExcludedEntry,
   IPCResult,
   StoredEnv,
   SyncAction,
@@ -38,6 +40,10 @@ import type {
  * Push (deploy to server): local-only → upload, different → replace, remote-only →
  * skip (or delete when `deleteExtra`). Pull (get from server) is the mirror image;
  * local deletes go to the OS trash.
+ *
+ * Exclude rules (see exclude.ts) apply to both sides: an excluded path is neither
+ * transferred nor deleted, and a folder holding an excluded path is never deleted
+ * as a whole — its other contents are deleted one by one instead.
  *
  * Conflicts: once a folder has been synced, the transfer state holds the version of
  * every file as the app left it. A replace or delete that would discard a change
@@ -85,28 +91,72 @@ export async function hashFile(path: string): Promise<string> {
   return hash.digest('hex')
 }
 
-/** Lists a local folder as '/'-separated relative paths, keyed lower case like the server. */
-export async function walkLocal(root: string): Promise<{
+type Excluded = Omit<ExcludedEntry, 'side'>
+
+/**
+ * Lists a local folder as '/'-separated relative paths, keyed lower case like the
+ * server. Excluded paths are left out and reported; excluded folders aren't entered.
+ */
+export async function walkLocal(
+  root: string,
+  exclusions?: Exclusions
+): Promise<{
   files: Map<string, LocalFile>
   dirs: Map<string, { path: string; absolute: string }>
+  excluded: Excluded[]
 }> {
   const files = new Map<string, LocalFile>()
   const dirs = new Map<string, { path: string; absolute: string }>()
+  const excluded: Excluded[] = []
   async function walk(dir: string, prefix: string): Promise<void> {
+    if (prefix) await exclusions?.enterDir(dir, prefix)
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name
       const absolute = join(dir, entry.name)
-      if (entry.isDirectory()) {
+      const isDir = entry.isDirectory()
+      if (!isDir && !entry.isFile()) continue
+      const rule = exclusions?.match(rel, isDir)
+      if (rule) {
+        excluded.push({ path: rel, type: isDir ? 'directory' : 'file', rule })
+        continue
+      }
+      if (isDir) {
         dirs.set(rel.toLowerCase(), { path: rel, absolute })
         await walk(absolute, rel)
-      } else if (entry.isFile()) {
+      } else {
         const s = await stat(absolute)
         files.set(rel.toLowerCase(), { path: rel, absolute, size: s.size, mtimeMs: s.mtimeMs })
       }
     }
   }
   await walk(root, '')
-  return { files, dirs }
+  return { files, dirs, excluded }
+}
+
+function parentPath(path: string): string {
+  const i = path.lastIndexOf('/')
+  return i < 0 ? '' : path.slice(0, i)
+}
+
+/** Lower-cased folders that hold an excluded path: these must never be deleted whole. */
+function pinnedFolders(excluded: Excluded[]): Set<string> {
+  const pinned = new Set<string>()
+  for (const x of excluded) {
+    for (let dir = parentPath(x.path.toLowerCase()); dir; dir = parentPath(dir)) pinned.add(dir)
+  }
+  return pinned
+}
+
+/** One row per path, marked with the side(s) it was found on. */
+function mergeExcluded(local: Excluded[], remote: Excluded[]): ExcludedEntry[] {
+  const merged = new Map<string, ExcludedEntry>()
+  for (const x of local) merged.set(x.path.toLowerCase(), { ...x, side: 'local' })
+  for (const x of remote) {
+    const key = x.path.toLowerCase()
+    const seen = merged.get(key)
+    merged.set(key, seen ? { ...seen, side: 'both' } : { ...x, side: 'remote' })
+  }
+  return [...merged.values()].sort((a, b) => (a.path.toLowerCase() < b.path.toLowerCase() ? -1 : 1))
 }
 
 function joinApi(root: string, rel: string): string {
@@ -147,14 +197,21 @@ export async function buildSyncPlan(
   try {
     const push = request.direction === 'push'
     const apiRoot = toApiPath(request.remotePath)
+    const exclusions = await loadExclusions({
+      localRoot: request.localPath,
+      apiRoot,
+      useDefaults: request.useDefaultExcludes ?? true,
+      useGitignore: request.useGitignore ?? false,
+      patterns: request.exclude ?? []
+    })
 
     let local: Awaited<ReturnType<typeof walkLocal>>
     try {
-      local = await walkLocal(request.localPath)
+      local = await walkLocal(request.localPath, exclusions)
     } catch {
       if (push)
         return { ok: false, error: `The local folder “${request.localPath}” doesn’t exist.` }
-      local = { files: new Map(), dirs: new Map() }
+      local = { files: new Map(), dirs: new Map(), excluded: [] }
     }
 
     let remoteEntries: FileTransferEntry[]
@@ -167,8 +224,21 @@ export async function buildSyncPlan(
     }
     const remoteFiles = new Map<string, FileTransferEntry>()
     const remoteDirs = new Map<string, FileTransferEntry>()
-    for (const e of remoteEntries)
-      (e.isDirectory ? remoteDirs : remoteFiles).set(e.path.toLowerCase(), e)
+    const remoteExcluded: Excluded[] = []
+    for (const e of remoteEntries) {
+      const rule = exclusions.match(e.path, e.isDirectory)
+      if (rule) {
+        // The manifest lists everything; report only the outermost excluded path.
+        const parent = parentPath(e.path)
+        if (!parent || !exclusions.match(parent, true))
+          remoteExcluded.push({ path: e.path, type: e.isDirectory ? 'directory' : 'file', rule })
+        continue
+      }
+      if (e.isDirectory) remoteDirs.set(e.path.toLowerCase(), e)
+      else remoteFiles.set(e.path.toLowerCase(), e)
+    }
+    const excluded = mergeExcluded(local.excluded, remoteExcluded)
+    const pinned = pinnedFolders(excluded)
 
     const syncedBefore = state.isTracked(apiRoot)
     const details = new Map<string, PlanDetail>()
@@ -236,7 +306,7 @@ export async function buildSyncPlan(
       if (remoteDirs.has(k)) continue
       if (push)
         add({ item: item(dir.path, 'directory', 'upload', 'New folder'), localDir: dir.absolute })
-      else if (request.deleteExtra)
+      else if (request.deleteExtra && !pinned.has(k))
         add({
           item: item(dir.path, 'directory', 'delete', 'Not on the server'),
           localDir: dir.absolute
@@ -245,7 +315,7 @@ export async function buildSyncPlan(
     for (const [k, dir] of remoteDirs) {
       if (local.dirs.has(k)) continue
       if (!push) add({ item: item(dir.path, 'directory', 'download', 'New folder'), remote: dir })
-      else if (request.deleteExtra)
+      else if (request.deleteExtra && !pinned.has(k))
         add({ item: item(dir.path, 'directory', 'delete', 'Not on this computer'), remote: dir })
     }
 
@@ -293,7 +363,10 @@ export async function buildSyncPlan(
       request,
       items,
       unchanged: unchanged.length,
-      syncedBefore
+      syncedBefore,
+      excluded,
+      dwignore: exclusions.dwignore,
+      gitignores: exclusions.gitignores
     }
     plans.set(plan.id, { env, plan, apiRoot, localRoot: request.localPath, details, unchanged })
     while (plans.size > MAX_PLANS) plans.delete(plans.keys().next().value as string)

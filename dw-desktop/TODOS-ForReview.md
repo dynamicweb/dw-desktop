@@ -44,35 +44,6 @@ is tracking focus between the two panes so the right pane receives the action.
 
 ---
 
-### Exclude rules for sync and upload
-
-**What:** Skip files by pattern in Sync and in folder uploads: a built-in default
-list (`.git/`, `node_modules/`, `.DS_Store`, `Thumbs.db`, `desktop.ini`, `*.tmp`)
-plus per-sync patterns, optionally read from a `.dwignore` file in the local
-folder.
-
-**Why:** Partners deploy from working folders. Today a Deploy sends `.git`, editor
-and OS junk files along with the real changes, and a Get with *Delete files that
-aren't on the other side* would trash local files the server never had.
-
-**Pros:** Every comparable tool has this (WinSCP file masks, FileZilla filename
-filters, Transmit skip rules, Beyond Compare filters, `rsync --exclude`). Saved
-syncs already store options, so per-sync patterns have a home.
-
-**Cons:** Excluded files must be ignored on both sides, or a push with delete would
-remove server files that match a pattern. Users need to see what was skipped.
-
-**Context:** `buildSyncPlan` in `sync.ts` walks the local folder and the server
-`manifest` with no filtering; `uploadFiles` in `dw-api.ts` uploads every file
-under a dropped folder.
-
-**Value:** High — wrong files on production is the most likely deploy mistake left.
-
-**Difficulty:** Low-Medium — a glob matcher applied to both walks; a list of
-skipped paths in the preview; a patterns field on saved syncs.
-
----
-
 ### Open and edit server files
 
 **What:** Double-click a server file to open it: download to a temp folder, open
@@ -570,3 +541,13 @@ folder or file with that name is reported in the dialog.
 Each environment is Production, Staging or Development (fixed set). Production is
 marked in the sidebar and pane label, and a deploy to production shows a warning in
 the Sync view and in the upload conflict dialog.
+
+### Exclude rules for sync and upload
+
+Sync skips paths by gitignore-style rules on both sides (`exclude.ts`, built on the
+`ignore` package): a built-in junk list (on by default), `.gitignore` files from the
+repository root down (opt-in, since they often list build output that must be
+deployed), a `.dwignore` in the local folder, and per-sync patterns stored on saved
+syncs. `System/Log` and `Cache.net` are never synced, as in the CLI. A folder holding
+an excluded path is never deleted whole. The preview lists excluded paths with side
+and rule. Folder uploads from Browse apply the junk list and report what they left out.

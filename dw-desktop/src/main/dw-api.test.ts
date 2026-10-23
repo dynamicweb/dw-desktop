@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { join } from 'path'
 
 const {
   mkdirMock,
@@ -345,6 +346,75 @@ describe('dw-api', () => {
 
     expect(result.ok).toBe(true)
     expect(result.data).toEqual({ totalFiles: 2, conflicts: ['a.txt'] })
+  })
+
+  // A local tree for folder uploads: folder path → child names (a trailing '/' marks a folder).
+  function mockLocalTree(tree: Record<string, string[]>): void {
+    const folders = new Set(Object.keys(tree).map((p) => join(p)))
+    statMock.mockImplementation(async (p: string) => {
+      const isDir = folders.has(join(p))
+      return { isDirectory: () => isDir, isFile: () => !isDir, size: 4 }
+    })
+    readdirMock.mockImplementation(async (p: string) => {
+      const entry = Object.entries(tree).find(([folder]) => join(folder) === join(p))
+      return (entry?.[1] ?? []).map((name) => ({
+        name: name.replace(/\/$/, ''),
+        isDirectory: () => name.endsWith('/')
+      }))
+    })
+    readMock.mockImplementation((buffer: Buffer, offset: number, length: number) => {
+      buffer.fill(66, offset, offset + length)
+      return Promise.resolve({ bytesRead: length })
+    })
+  }
+
+  it('checkUploadConflicts leaves junk out of an uploaded folder without listing it', async () => {
+    mockLocalTree({
+      '/tmp/site': ['page.cshtml', '.DS_Store', '.git/', 'css/'],
+      '/tmp/site/.git': ['HEAD'],
+      '/tmp/site/css': ['a.css', 'b.tmp']
+    })
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({ path: '', exists: false, isDirectory: false })
+    )
+
+    const result = await checkUploadConflicts(env, ['/tmp/site'], '/Files')
+
+    expect(result.data).toEqual({ totalFiles: 2, conflicts: [] })
+    expect(readdirMock.mock.calls.map(([p]) => join(p as string))).not.toContain(
+      join('/tmp/site/.git')
+    )
+  })
+
+  it('uploadFiles reports excluded junk, matches inside the picked folder, and keeps picked files', async () => {
+    mockLocalTree({
+      '/tmp/src/node_modules': ['lib.js', '.DS_Store']
+    })
+    const sessionsCreated: string[] = []
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = decodeURIComponent(String(input))
+      if (url.endsWith('/uploads') && init?.method === 'POST') {
+        sessionsCreated.push((JSON.parse(init.body as string) as { targetPath: string }).targetPath)
+        return jsonResponse({ id: 's1', chunkSize: 4, totalChunks: 1 })
+      }
+      if (url.includes('/chunks/')) return jsonResponse({})
+      if (url.includes('/finalize')) return jsonResponse({ targetPath: 'x' })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    const result = await uploadFiles(
+      env,
+      ['/tmp/src/node_modules', '/tmp/src/.DS_Store'],
+      '/Files',
+      true,
+      () => undefined
+    )
+
+    expect(result.data).toMatchObject({
+      uploaded: 2,
+      excludedNames: ['node_modules/.DS_Store']
+    })
+    expect(sessionsCreated.sort()).toEqual(['Files/.DS_Store', 'Files/node_modules/lib.js'])
   })
 
   it('uploadFiles skips existing files when overwrite is off and reports a summary', async () => {

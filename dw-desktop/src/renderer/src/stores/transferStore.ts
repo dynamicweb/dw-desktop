@@ -259,7 +259,7 @@ export function initTransferListeners(): () => void {
   })
 
   const unsubDone = window.dw.on.filesDone(
-    ({ jobId, ok, error, cancelled, uploaded, skipped, skippedNames }) => {
+    ({ jobId, ok, error, cancelled, uploaded, skipped, skippedNames, excludedNames }) => {
       // An upload where the server wrote nothing and skipped existing files is
       // reported as 'skipped' — not the misleading 'done' it used to show.
       const status: TransferJob['status'] = cancelled
@@ -273,6 +273,7 @@ export function initTransferListeners(): () => void {
         status,
         error: cancelled ? undefined : error,
         skippedNames,
+        excludedNames: excludedNames?.length ? excludedNames : undefined,
         ...(status === 'done' ? { transferred: 1, total: 1 } : {})
       })
       const job = useTransferStore.getState().jobs.find((j) => j.id === jobId)

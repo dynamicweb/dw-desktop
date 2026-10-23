@@ -12,6 +12,7 @@ All remote file handling goes through the DW10 **File Transfer API** (`/Admin/Ap
 | --- | --- |
 | `src/main/dw-api.ts` | File Transfer API client: listing (`entries`, `manifest`), chunked uploads (`uploads` → `chunks` → `finalize`), resumable downloads, move/copy/delete/directory. Idempotency keys, retries, `FileTransferApiError`. |
 | `src/main/sync.ts` | Sync engine: `buildSyncPlan` (preview) and `runSyncPlan` (folders → files in parallel → deletes, `If-Match` guarded). |
+| `src/main/exclude.ts` | Exclude rules for sync (built-in junk list, `.gitignore`, `.dwignore`, per-sync patterns, protected `System/Log` / `Cache.net`), merged into one `ignore` matcher. The junk list (`src/shared/exclude.ts`) also applies to folder uploads. |
 | `src/main/transferState.ts` | Sync baseline per host, `userData/transfer-state.json`. Drives conflict detection. |
 | `src/main/activity.ts` | Activity history, `userData/activity.json` (30 days / 500 jobs; running jobs come back as *Interrupted*). |
 | `src/main/cancellation.ts` | AbortController per job id; `files:cancel` aborts them. |

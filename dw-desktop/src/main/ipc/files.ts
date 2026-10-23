@@ -227,7 +227,8 @@ export function registerFileHandlers(): void {
             cancelled: controller.signal.aborted,
             uploaded: uploadResult.data?.uploaded,
             skipped: uploadResult.data?.skipped,
-            skippedNames: uploadResult.data?.skippedNames
+            skippedNames: uploadResult.data?.skippedNames,
+            excludedNames: uploadResult.data?.excludedNames
           })
         })
         .catch((err: Error) => {

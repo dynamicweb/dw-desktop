@@ -29,6 +29,7 @@ export interface DonePayload {
   uploaded?: number
   skipped?: number
   skippedNames?: string[]
+  excludedNames?: string[]
   cancelled?: boolean
 }
 
@@ -81,6 +82,8 @@ export interface DWDesktopAPI {
   sync: {
     plan(request: SyncRequest): Promise<IPCResult<SyncPlan>>
     run(planId: string, items: SyncRunItem[]): void
+    /** Whether a .gitignore applies to the local folder, so the option is worth offering. */
+    inspectLocal(localPath: string): Promise<IPCResult<{ gitignore: boolean }>>
   }
   activity: {
     /** The saved history; jobs that were running at the last quit come back as failed. */

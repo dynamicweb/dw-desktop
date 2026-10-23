@@ -6,6 +6,7 @@ import { Readable } from 'stream'
 import { pipeline } from 'stream/promises'
 import type { ReadableStream as WebReadableStream } from 'stream/web'
 import { resolveAuthHeader } from './auth'
+import { defaultExclusions } from './exclude'
 import { FILE_TRANSFER_UNSUPPORTED, humanizeAuthError } from '../shared/authErrors'
 import type {
   FileEntry,
@@ -254,34 +255,53 @@ export interface UploadableFile {
   size: number
 }
 
-async function collectLocalFiles(localPaths: string[]): Promise<UploadableFile[]> {
+// Files picked one by one are always uploaded. Inside a picked folder, the built-in
+// junk list (.git, node_modules, .DS_Store…) is left out, matched relative to that
+// folder so picking a folder that is itself named e.g. node_modules still works.
+async function collectLocalFiles(
+  localPaths: string[]
+): Promise<{ files: UploadableFile[]; excludedNames: string[] }> {
   const files: UploadableFile[] = []
+  const excludedNames: string[] = []
+  const excluded = defaultExclusions()
   for (const localPath of localPaths) {
     const fileStat = await stat(localPath)
     if (fileStat.isDirectory()) {
-      files.push(...(await collectDirectoryFiles(dirname(localPath), localPath)))
+      const rootPath = dirname(localPath)
+      const skip = (childPath: string, isDir: boolean): boolean => {
+        if (!excluded(toSlashes(relative(localPath, childPath)), isDir)) return false
+        excludedNames.push(toSlashes(relative(rootPath, childPath)))
+        return true
+      }
+      files.push(...(await collectDirectoryFiles(rootPath, localPath, skip)))
     } else {
       files.push({ localPath, remoteRelativePath: basename(localPath), size: fileStat.size })
     }
   }
-  return files
+  return { files, excludedNames }
+}
+
+function toSlashes(path: string): string {
+  return path.replace(/\\/g, '/')
 }
 
 async function collectDirectoryFiles(
   rootPath: string,
-  currentPath: string
+  currentPath: string,
+  skip: (childPath: string, isDir: boolean) => boolean
 ): Promise<UploadableFile[]> {
   const children = await readdir(currentPath, { withFileTypes: true })
   const files: UploadableFile[] = []
   for (const child of children) {
     const childPath = join(currentPath, child.name)
+    if (skip(childPath, child.isDirectory())) continue
     if (child.isDirectory()) {
-      files.push(...(await collectDirectoryFiles(rootPath, childPath)))
+      files.push(...(await collectDirectoryFiles(rootPath, childPath, skip)))
     } else {
       const childStat = await stat(childPath)
       files.push({
         localPath: childPath,
-        remoteRelativePath: relative(rootPath, childPath).replace(/\\/g, '/'),
+        remoteRelativePath: toSlashes(relative(rootPath, childPath)),
         size: childStat.size
       })
     }
@@ -371,7 +391,7 @@ export async function checkUploadConflicts(
   remotePath: string
 ): Promise<IPCResult<UploadConflictInfo>> {
   try {
-    const files = await collectLocalFiles(localPaths)
+    const { files } = await collectLocalFiles(localPaths)
     const remoteApiBase = toApiPath(remotePath)
     const conflictSet = await findExistingTargets(env, files, remoteApiBase)
     const conflicts = files
@@ -516,7 +536,7 @@ export async function uploadFiles(
   signal?: AbortSignal
 ): Promise<IPCResult<UploadSummary>> {
   try {
-    const allFiles = await collectLocalFiles(localPaths)
+    const { files: allFiles, excludedNames } = await collectLocalFiles(localPaths)
     const remoteApiBase = toApiPath(remotePath)
 
     // With overwrite off, existing targets are skipped (never failed): resolve
@@ -572,6 +592,7 @@ export async function uploadFiles(
       uploaded,
       skipped: skippedNames.length,
       skippedNames,
+      excludedNames,
       failed,
       firstError
     }
