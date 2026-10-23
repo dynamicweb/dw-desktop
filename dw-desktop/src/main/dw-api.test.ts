@@ -174,6 +174,16 @@ describe('dw-api', () => {
     expect(result.error).toContain('Authentication failed')
   })
 
+  it('listFiles reports a folder permission refusal, not an authentication failure', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      errorResponse(403, { code: 'FORBIDDEN', message: 'Access denied', path: '' })
+    )
+    const result = await listFiles(env, '/')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain("don't have access")
+    expect(result.error).not.toContain('Authentication failed')
+  })
+
   it('listFiles explains a missing File Transfer API (bare 404)', async () => {
     vi.mocked(fetch).mockResolvedValue(errorResponse(404))
     const result = await listFiles(env, '/')
@@ -425,6 +435,28 @@ describe('dw-api', () => {
       excludedNames: ['node_modules/.DS_Store']
     })
     expect(sessionsCreated.sort()).toEqual(['Files/.DS_Store', 'Files/node_modules/lib.js'])
+  })
+
+  it('uploadFiles marks a folder permission refusal and names the missing permission', async () => {
+    mockLocalFile(4)
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = decodeURIComponent(String(input))
+      if (url.endsWith('/uploads') && init?.method === 'POST') {
+        return errorResponse(403, {
+          code: 'FORBIDDEN',
+          message: 'Create permission is required on the target directory.',
+          path: 'Images/file.txt'
+        })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    const result = await uploadFiles(env, ['/tmp/file.txt'], '/Images', true, () => undefined)
+
+    expect(result.ok).toBe(false)
+    expect(result.errorKind).toBe('permission')
+    expect(result.error).toContain('You need Create permission on "/Images/file.txt"')
+    expect(result.error).not.toContain('Authentication failed')
   })
 
   it('uploadFiles with ifMatch replaces only that version and explains a newer one', async () => {

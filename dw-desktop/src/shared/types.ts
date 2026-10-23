@@ -109,6 +109,8 @@ export interface TransferJob {
   batchTitle?: string
   /** Set for jobs created by a sync run. */
   fromSync?: boolean
+  /** A sync folder item: it creates that folder and nothing below it. */
+  directoryOnly?: boolean
   direction: 'upload' | 'download' | 'delete'
   label: string
   /**
@@ -128,6 +130,7 @@ export interface TransferJob {
   transferred: number
   total: number
   error?: string
+  errorKind?: ErrorKind
   /** For uploads: base names the server skipped because they already existed. */
   skippedNames?: string[]
   /** For uploads: junk files and folders left out of an uploaded folder. */
@@ -209,10 +212,14 @@ export interface SyncRunResult {
   cancelled: boolean
 }
 
+/** Why something failed, where the UI words it differently: 'permission' = 403 FORBIDDEN. */
+export type ErrorKind = 'permission'
+
 export interface IPCResult<T = unknown> {
   ok: boolean
   data?: T
   error?: string
+  errorKind?: ErrorKind
 }
 
 /** Outcome counts for an upload batch (one files:upload invocation). */
@@ -241,6 +248,8 @@ export interface ConnectionStatus {
   connected: boolean
   version?: string
   error?: string
+  /** Signed in, but with something the user should know (e.g. no access to the root). */
+  notice?: string
 }
 
 /** Non-secret, safe-to-display parts of an environment's stored credentials. */

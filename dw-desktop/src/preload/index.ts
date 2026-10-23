@@ -27,6 +27,7 @@ interface DonePayload {
   jobId: string
   ok: boolean
   error?: string
+  errorKind?: 'permission'
   uploaded?: number
   skipped?: number
   skippedNames?: string[]
@@ -108,7 +109,11 @@ const dw = {
     run: (planId: string, items: SyncRunItem[]): void =>
       ipcRenderer.send('sync:run', { planId, items }),
     inspectLocal: (localPath: string): Promise<IPCResult<{ gitignore: boolean }>> =>
-      ipcRenderer.invoke('sync:inspectLocal', localPath)
+      ipcRenderer.invoke('sync:inspectLocal', localPath),
+    makeDirectory: (
+      envName: string,
+      target: { remotePath?: string; localPath?: string }
+    ): Promise<IPCResult> => ipcRenderer.invoke('sync:makeDirectory', { envName, ...target })
   },
   activity: {
     load: (): Promise<TransferJob[]> => ipcRenderer.invoke('activity:load'),

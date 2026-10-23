@@ -38,6 +38,7 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{
     connected: boolean
+    notice?: string
     version?: string
     error?: string
   } | null>(null)
@@ -515,13 +516,19 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
                   <span
                     style={{
                       fontSize: 12,
-                      color: testResult.connected ? 'var(--success)' : 'var(--danger)'
+                      color: !testResult.connected
+                        ? 'var(--danger)'
+                        : testResult.notice
+                          ? 'var(--warning)'
+                          : 'var(--success)'
                     }}
                   >
                     {testResult.connected
                       ? testResult.version
                         ? `✓ DynamicWeb ${testResult.version}`
-                        : '✓ Connected'
+                        : testResult.notice
+                          ? `✓ ${testResult.notice}`
+                          : '✓ Connected'
                       : (testResult.error ?? 'Connection failed')}
                   </span>
                 )}

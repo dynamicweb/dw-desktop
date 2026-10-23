@@ -2,9 +2,29 @@ import { useMemo } from 'react'
 import { useEnvStore } from '../stores/envStore'
 import { useTransferStore } from '../stores/transferStore'
 import { useUiStore } from '../stores/uiStore'
-import { groupBatches } from '../utils/batches'
+import { groupBatches, type Batch } from '../utils/batches'
 import { AlertIcon, DownloadIcon, SyncIcon, UploadIcon } from './Icons'
 import { envLabel } from '../../../shared/types'
+
+function folderName(path: string): string {
+  const name = path.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop()
+  return name || 'the root folder'
+}
+
+/** Says "missing permission" when that is why every failed job failed. */
+function failureText(failed: Batch[]): string {
+  const errors = failed.flatMap((b) => b.jobs.filter((j) => j.status === 'error'))
+  const permission = errors.length > 0 && errors.every((j) => j.errorKind === 'permission')
+  if (!permission) {
+    return failed.length === 1 ? 'A transfer failed' : `${failed.length} transfers failed`
+  }
+  if (failed.length > 1) return `${failed.length} transfers failed: missing permission`
+  const b = failed[0]
+  if (b.isSync) return 'Sync items failed: missing permission'
+  if (b.direction === 'upload') return `No permission to upload to ${folderName(b.remotePath)}`
+  if (b.direction === 'download') return `No permission to download ${b.jobs[0].label}`
+  return `No permission to delete ${b.jobs[0].label}`
+}
 
 /**
  * Floating progress pill (bottom right) while transfers run, or after one failed
@@ -54,11 +74,7 @@ export default function TransferPill(): React.JSX.Element | null {
     progress = b.progress
   } else {
     icon = <AlertIcon size={15} />
-    text = (
-      <span style={{ color: 'var(--danger)' }}>
-        {failed.length === 1 ? 'A transfer failed' : `${failed.length} transfers failed`}
-      </span>
-    )
+    text = <span style={{ color: 'var(--danger)' }}>{failureText(failed)}</span>
   }
 
   return (

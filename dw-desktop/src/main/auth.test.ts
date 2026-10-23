@@ -17,7 +17,7 @@ vi.mock('keytar', () => ({
 const fetchMock = vi.fn()
 vi.stubGlobal('fetch', fetchMock)
 
-import { resolveAuthHeader } from './auth'
+import { resolveAuthHeader, testConnection } from './auth'
 import type { StoredEnv } from '../shared/types'
 
 const prodEnv: StoredEnv = {
@@ -114,5 +114,39 @@ describe('resolveAuthHeader', () => {
     const header2 = await resolveAuthHeader(tokenEnv)
     expect(header2).toBe('Bearer fresh-token')
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('testConnection', () => {
+  const tokenOk = (): Response =>
+    new Response(JSON.stringify({ token: 'tok', expires_in: 3600 }), { status: 200 })
+  const creds = { authType: 'oauth' as const, clientId: 'id', clientSecret: 'secret' }
+
+  beforeEach(() => {
+    fetchMock.mockReset()
+  })
+
+  it('treats a 403 on the root probe as a working login limited by folder permissions', async () => {
+    fetchMock
+      .mockResolvedValueOnce(tokenOk())
+      .mockResolvedValueOnce(new Response('{"code":"FORBIDDEN"}', { status: 403 }))
+    const status = await testConnection(oauthEnv, creds)
+    expect(status.connected).toBe(true)
+    expect(status.notice).toContain('/Files root')
+  })
+
+  it('still fails when the token request is refused', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{"error":"invalid_client"}', { status: 401 }))
+    const status = await testConnection(oauthEnv, creds)
+    expect(status.connected).toBe(false)
+    expect(status.error).toContain('Authentication failed')
+  })
+
+  it('still fails when the API rejects the token (401)', async () => {
+    fetchMock
+      .mockResolvedValueOnce(tokenOk())
+      .mockResolvedValueOnce(new Response('', { status: 401 }))
+    const status = await testConnection(oauthEnv, creds)
+    expect(status.connected).toBe(false)
   })
 })

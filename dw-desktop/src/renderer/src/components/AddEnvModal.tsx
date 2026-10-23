@@ -70,6 +70,7 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{
     connected: boolean
+    notice?: string
     version?: string
     error?: string
   } | null>(null)
@@ -568,6 +569,11 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
               <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                 {testResult?.version ? `DynamicWeb ${testResult.version}` : 'Connection successful'}
               </p>
+              {testResult?.notice && (
+                <p style={{ marginTop: 8, fontSize: 12, color: 'var(--warning)' }}>
+                  {testResult.notice}
+                </p>
+              )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <button style={btnSecondary} type="button" onClick={() => setStep(2)}>

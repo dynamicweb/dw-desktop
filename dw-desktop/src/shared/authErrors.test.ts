@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { humanizeAuthError } from './authErrors'
+import { folderForbidden, humanizeAuthError } from './authErrors'
 
 const env = { host: 'example.dynamicweb.dk' }
 
@@ -65,5 +65,17 @@ describe('humanizeAuthError', () => {
 
   it('provides a generic message when given no input', () => {
     expect(humanizeAuthError(undefined)).toBe('Something went wrong while connecting.')
+  })
+})
+
+describe('folderForbidden', () => {
+  it('names the permission the server says is missing', () => {
+    expect(folderForbidden('Images', 'Delete permission is required on the path.')).toBe(
+      'You need Delete permission on "/Images" for this. Ask an administrator to grant it in the Assets area.'
+    )
+  })
+
+  it('falls back to a general message without a recognisable server message', () => {
+    expect(folderForbidden(undefined, 'Access denied')).toContain("You don't have access to this folder")
   })
 })

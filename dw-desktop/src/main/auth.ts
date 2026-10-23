@@ -1,6 +1,10 @@
 import { getApiKey, getOAuthCredentials } from './credentials'
 import { debugRequest, debugResponse } from './debug'
-import { FILE_TRANSFER_UNSUPPORTED, humanizeAuthError } from '../shared/authErrors'
+import {
+  FILE_TRANSFER_UNSUPPORTED,
+  ROOT_FORBIDDEN_NOTICE,
+  humanizeAuthError
+} from '../shared/authErrors'
 import type { ConnectionStatus, StoredEnv } from '../shared/types'
 
 interface OAuthCacheEntry {
@@ -117,6 +121,9 @@ async function probeResult(
   // A 404 from the probe means the route is missing: the site's Dynamicweb version
   // predates the File Transfer API.
   if (response.status === 404) return { connected: false, error: FILE_TRANSFER_UNSUPPORTED }
+  // 403 means the credentials were accepted but folder permissions don't include the
+  // root (e.g. a client limited to /Files/Images). That is still a working login.
+  if (response.status === 403) return { connected: true, notice: ROOT_FORBIDDEN_NOTICE }
   return { connected: false, error: humanizeAuthError(`${prefix} ${response.status}`, env) }
 }
 

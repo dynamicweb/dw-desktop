@@ -7,10 +7,11 @@ import { pipeline } from 'stream/promises'
 import type { ReadableStream as WebReadableStream } from 'stream/web'
 import { resolveAuthHeader } from './auth'
 import { defaultExclusions } from './exclude'
-import { FILE_TRANSFER_UNSUPPORTED, humanizeAuthError } from '../shared/authErrors'
+import { FILE_TRANSFER_UNSUPPORTED, folderForbidden, humanizeAuthError } from '../shared/authErrors'
 import type {
   FileEntry,
   IPCResult,
+  ErrorKind,
   StoredEnv,
   UploadConflictInfo,
   UploadSummary
@@ -57,10 +58,12 @@ export class FileTransferApiError extends Error {
   code?: string
   status: number
   retryable: boolean
+  path?: string
   constructor(status: number, body: FileTransferErrorBody | undefined, rawText: string) {
     super(body?.message || rawText || `Request failed with status ${status}`)
     this.status = status
     this.code = body?.code
+    this.path = body?.path
     this.retryable = body?.retryable === true
   }
 }
@@ -183,9 +186,20 @@ export function postJson<T>(
   )
 }
 
-export function errorToResult(err: unknown, env: StoredEnv): { ok: false; error: string } {
+/** A folder permission refusal: the login itself is fine. */
+export function isForbidden(err: unknown): boolean {
+  return err instanceof FileTransferApiError && err.status === 403 && err.code === 'FORBIDDEN'
+}
+
+export function errorToResult(
+  err: unknown,
+  env: StoredEnv
+): { ok: false; error: string; errorKind?: ErrorKind } {
   if (isAbortError(err)) return { ok: false, error: CANCELLED }
   if (err instanceof FileTransferApiError) {
+    if (isForbidden(err)) {
+      return { ok: false, error: folderForbidden(err.path, err.message), errorKind: 'permission' }
+    }
     if (err.status === 401 || err.status === 403) {
       return { ok: false, error: humanizeAuthError(err.message, env) }
     }
@@ -566,6 +580,7 @@ export async function uploadFiles(
     let uploaded = 0
     let failed = 0
     let firstError: string | undefined
+    let firstErrorKind: ErrorKind | undefined
 
     await mapPool(toUpload, FILE_CONCURRENCY, async (file) => {
       if (signal?.aborted) return
@@ -594,13 +609,17 @@ export async function uploadFiles(
         }
         if (isAbortError(err)) return
         failed++
-        if (!firstError)
+        if (!firstError) {
+          if (isForbidden(err)) firstErrorKind = 'permission'
           firstError =
             err instanceof FileTransferApiError && err.code === 'PRECONDITION_FAILED'
               ? changedSincePreview(file.remoteRelativePath, 'replaced')
-              : err instanceof Error
-                ? err.message
-                : String(err)
+              : isForbidden(err)
+                ? folderForbidden((err as FileTransferApiError).path ?? targetPath, (err as Error).message)
+                : err instanceof Error
+                  ? err.message
+                  : String(err)
+        }
       }
     })
     if (signal?.aborted) return { ok: false, error: CANCELLED }
@@ -618,6 +637,7 @@ export async function uploadFiles(
       return {
         ok: false,
         error: `${failed} of ${toUpload.length} file(s) failed to upload${suffix}`,
+        errorKind: firstErrorKind,
         data: summary
       }
     }

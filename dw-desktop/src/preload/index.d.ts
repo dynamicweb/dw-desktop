@@ -26,6 +26,7 @@ export interface DonePayload {
   jobId: string
   ok: boolean
   error?: string
+  errorKind?: 'permission'
   uploaded?: number
   skipped?: number
   skippedNames?: string[]
@@ -87,6 +88,11 @@ export interface DWDesktopAPI {
     run(planId: string, items: SyncRunItem[]): void
     /** Whether a .gitignore applies to the local folder, so the option is worth offering. */
     inspectLocal(localPath: string): Promise<IPCResult<{ gitignore: boolean }>>
+    /** Retry of a sync folder item: creates that one folder on the server or locally. */
+    makeDirectory(
+      envName: string,
+      target: { remotePath?: string; localPath?: string }
+    ): Promise<IPCResult>
   }
   activity: {
     /** The saved history; jobs that were running at the last quit come back as failed. */

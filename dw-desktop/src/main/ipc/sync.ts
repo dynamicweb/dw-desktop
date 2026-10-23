@@ -1,7 +1,9 @@
+import { mkdir } from 'fs/promises'
 import { ipcMain, shell } from 'electron'
 import { releaseJobs, trackJobs } from '../cancellation'
 import { hasGitignore } from '../exclude'
 import { buildSyncPlan, runSyncPlan } from '../sync'
+import { errorToResult, postJson, toApiPath } from '../dw-api'
 import { getEnvOrError } from './files'
 import type { IPCResult, SyncPlan, SyncRequest, SyncRunItem } from '../../shared/types'
 
@@ -12,6 +14,33 @@ export function registerSyncHandlers(): void {
       const result = getEnvOrError(request.envName)
       if ('ok' in result) return result as IPCResult<SyncPlan>
       return buildSyncPlan(result.env, request)
+    }
+  )
+
+  // Retry of a sync folder item: create that one folder, like the run did (the server
+  // endpoint is idempotent; a local folder is made with its parents).
+  ipcMain.handle(
+    'sync:makeDirectory',
+    async (
+      _event,
+      { envName, remotePath, localPath }: { envName: string; remotePath?: string; localPath?: string }
+    ): Promise<IPCResult> => {
+      if (localPath) {
+        try {
+          await mkdir(localPath, { recursive: true })
+          return { ok: true }
+        } catch (err) {
+          return { ok: false, error: (err as Error).message }
+        }
+      }
+      const result = getEnvOrError(envName)
+      if ('ok' in result) return result
+      try {
+        await postJson(result.env, 'entries/directory', { path: toApiPath(remotePath ?? '/') })
+        return { ok: true }
+      } catch (err) {
+        return errorToResult(err, result.env)
+      }
     }
   )
 
@@ -51,6 +80,7 @@ export function registerSyncHandlers(): void {
             jobId,
             ok: outcome.ok,
             error: outcome.error,
+            errorKind: outcome.errorKind,
             cancelled: !!itemControllers.get(jobId)?.signal.aborted && !outcome.ok,
             uploaded: outcome.skipped ? 0 : 1,
             skipped: outcome.skipped ? 1 : 0

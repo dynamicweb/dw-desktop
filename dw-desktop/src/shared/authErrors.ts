@@ -5,6 +5,24 @@ export const FILE_TRANSFER_UNSUPPORTED =
   'This site does not expose the Dynamicweb File Transfer API. Update the site to a Dynamicweb version that includes it.'
 
 /**
+ * Shown when the credentials work but the folder permissions don't cover a path (403
+ * FORBIDDEN). The server names the missing permission ("Create permission is required
+ * on the target directory."), so the message can say which one to ask for.
+ */
+export function folderForbidden(path?: string, serverMessage?: string): string {
+  const where = path ? `"${path.startsWith('/') ? path : '/' + path}"` : 'this folder'
+  const needed = /^(\w+) permission is required/i.exec(serverMessage ?? '')?.[1]
+  const ask = 'Ask an administrator to grant it in the Assets area.'
+  return needed
+    ? `You need ${needed} permission on ${where} for this. ${ask}`
+    : `You don't have access to ${where}. ${ask}`
+}
+
+/** Shown after a successful test when the client can sign in but not read the /Files root. */
+export const ROOT_FORBIDDEN_NOTICE =
+  "Signed in, but this login can't read the /Files root - only the folders it has been given access to will work."
+
+/**
  * Translates the low-level errors produced while connecting to a DynamicWeb
  * host (fetch failures, HTTP status codes, OAuth/login responses) into a short,
  * plain-language message a non-technical user can act on.

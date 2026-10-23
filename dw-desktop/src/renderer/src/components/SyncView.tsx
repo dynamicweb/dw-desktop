@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   envKind,
   envKindLabel,
@@ -189,6 +189,9 @@ export default function SyncView(): React.JSX.Element {
   const [resolutions, setResolutions] = useState<Map<string, Resolution>>(new Map())
   const [editingRemote, setEditingRemote] = useState(false)
   const [savingName, setSavingName] = useState(false)
+  // Bumped whenever the inputs change, so a preview that was still running when they
+  // did is thrown away instead of bringing back a plan for the old options.
+  const revision = useRef(0)
 
   // Prefill from a draft (Browse's "Sync folder" or a saved sync), else Browse's folders.
   useEffect(() => {
@@ -204,7 +207,9 @@ export default function SyncView(): React.JSX.Element {
     setShowPatterns((d?.exclude ?? []).length > 0)
     setSavedId(d?.savedId)
     setName(d?.name ?? '')
+    revision.current++
     setPlan(null)
+    setPlanning(false)
     setError(null)
   }, [syncDraft, activeEnv?.name])
 
@@ -221,7 +226,9 @@ export default function SyncView(): React.JSX.Element {
 
   // Any change to what would be compared invalidates the preview.
   function invalidate(): void {
+    revision.current++
     setPlan(null)
+    setPlanning(false)
     setError(null)
   }
 
@@ -233,6 +240,7 @@ export default function SyncView(): React.JSX.Element {
 
   async function preview(): Promise<void> {
     if (!activeEnv || !localPath) return
+    const started = ++revision.current
     setPlanning(true)
     setError(null)
     const result = await window.dw.sync.plan({
@@ -246,6 +254,7 @@ export default function SyncView(): React.JSX.Element {
       useGitignore,
       exclude
     })
+    if (started !== revision.current) return
     setPlanning(false)
     if (!result.ok || !result.data) {
       setError(result.error ?? 'Couldn’t compare the folders.')
@@ -290,6 +299,10 @@ export default function SyncView(): React.JSX.Element {
 
   function run(): void {
     if (!activeEnv || !plan || selected.length === 0) return
+    // Jobs describe what the plan will do, so they come from the request it was built
+    // for, never from controls that may have changed since.
+    const { localPath, remotePath, envName } = plan.request
+    const push = plan.request.direction === 'push'
     const batchId = nanoid()
     const title = `${push ? 'Deploy' : 'Get'} ${displayName}`
     const localSep = localPath.includes('\\') ? '\\' : '/'
@@ -310,9 +323,11 @@ export default function SyncView(): React.JSX.Element {
       return {
         id: nanoid(),
         batchId,
-        envName: activeEnv.name,
+        envName,
         batchTitle: title,
         fromSync: true,
+        // Retrying a folder item recreates the folder only, never its whole subtree.
+        directoryOnly: item.type === 'directory' && !deleting,
         direction: deleting ? 'delete' : push ? 'upload' : 'download',
         label: item.type === 'directory' ? `${item.path}/` : item.path,
         remotePath: deleting || !push ? remoteItem : parentOf(remoteItem, '/'),

@@ -230,6 +230,7 @@ export function registerFileHandlers(): void {
             jobId,
             ok: uploadResult.ok,
             error: uploadResult.error,
+            errorKind: uploadResult.errorKind,
             cancelled: controller.signal.aborted,
             uploaded: uploadResult.data?.uploaded,
             skipped: uploadResult.data?.skipped,

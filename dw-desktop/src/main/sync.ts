@@ -11,6 +11,7 @@ import {
   errorToResult,
   getJson,
   isAbortError,
+  isForbidden,
   localPathFor,
   mapPool,
   postJson,
@@ -18,9 +19,11 @@ import {
   uploadOneFile,
   type FileTransferEntry
 } from './dw-api'
+import { folderForbidden } from '../shared/authErrors'
 import { loadExclusions, type Exclusions } from './exclude'
 import { createTransferState, type BaselineEntry, type TransferState } from './transferState'
 import type {
+  ErrorKind,
   ExcludedEntry,
   IPCResult,
   StoredEnv,
@@ -340,17 +343,6 @@ export async function buildSyncPlan(
         add({ item: item(dir.path, 'directory', 'delete', 'Not on this computer'), remote: dir })
     }
 
-    // A deleted folder takes its contents with it: show only the top-level deletes.
-    const deletedDirs = [...details.values()]
-      .filter((d) => d.item.type === 'directory' && d.item.action === 'delete')
-      .map((d) => `${d.item.path.toLowerCase()}/`)
-    for (const [path, d] of details) {
-      const lower = path.toLowerCase()
-      if (d.item.action === 'delete' && deletedDirs.some((dir) => lower.startsWith(dir))) {
-        details.delete(path)
-      }
-    }
-
     // Conflicts: only meaningful once this folder has a baseline.
     if (syncedBefore) {
       await mapPool([...details.values()], FILE_CONCURRENCY * 2, async (d) => {
@@ -374,6 +366,27 @@ export async function buildSyncPlan(
             markConflict(d, 'Changed on this computer since your last sync')
         }
       })
+    }
+
+    // A deleted folder takes its contents with it: show only the top-level deletes.
+    // A recursive delete would bypass the per-file conflict checks above, so a folder
+    // that holds a conflict is not deleted as a whole: its contents stay listed one by
+    // one (the conflict to resolve, the rest to delete), and the folder itself stays.
+    const conflictPaths = [...details.values()]
+      .filter((d) => d.item.action === 'conflict')
+      .map((d) => d.item.path.toLowerCase())
+    const deletedDirs: string[] = []
+    for (const [path, d] of details) {
+      if (d.item.type !== 'directory' || d.item.action !== 'delete') continue
+      const prefix = `${path.toLowerCase()}/`
+      if (conflictPaths.some((c) => c.startsWith(prefix))) details.delete(path)
+      else deletedDirs.push(prefix)
+    }
+    for (const [path, d] of details) {
+      const lower = path.toLowerCase()
+      if (d.item.action === 'delete' && deletedDirs.some((dir) => lower.startsWith(dir))) {
+        details.delete(path)
+      }
     }
 
     const items = [...details.values()]
@@ -402,9 +415,16 @@ function markConflict(d: PlanDetail, reason: string): void {
   d.item = { ...d.item, action: 'conflict', reason, include: false }
 }
 
+export interface SyncOutcome {
+  ok: boolean
+  skipped?: boolean
+  error?: string
+  errorKind?: ErrorKind
+}
+
 export interface SyncEvents {
   progress: (jobId: string, transferred: number, total: number) => void
-  done: (jobId: string, outcome: { ok: boolean; skipped?: boolean; error?: string }) => void
+  done: (jobId: string, outcome: SyncOutcome) => void
 }
 
 export interface SyncRunDeps {
@@ -439,7 +459,7 @@ export async function runSyncPlan(
 
   const finish = (
     jobId: string,
-    outcome: { ok: boolean; skipped?: boolean; error?: string }
+    outcome: SyncOutcome
   ): void => {
     if (outcome.skipped) result.skipped++
     else if (outcome.ok) result.done++
@@ -532,7 +552,11 @@ export async function runSyncPlan(
         events.done(run.jobId, { ok: false, error: CANCELLED })
         return
       }
-      finish(run.jobId, { ok: false, error: describeError(err, it) })
+      finish(run.jobId, {
+        ok: false,
+        error: describeError(err, it),
+        ...(isForbidden(err) ? { errorKind: 'permission' as const } : {})
+      })
     }
   }
 
@@ -578,6 +602,7 @@ function describeError(err: unknown, it: SyncItem): string {
     if (err.code === 'PRECONDITION_FAILED' || err.code === 'ALREADY_EXISTS') {
       return `“${it.path}” changed on the server while syncing, so it was not overwritten. Preview again to review it.`
     }
+    if (isForbidden(err)) return folderForbidden(err.path ?? it.path, err.message)
     return err.message
   }
   return err instanceof Error ? err.message : String(err)

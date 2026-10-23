@@ -126,13 +126,14 @@ async function runDownload(job: TransferJob): Promise<void> {
   // A cancelled batch skips jobs that hadn't started yet.
   const current = useTransferStore.getState().jobs.find((j) => j.id === job.id)
   if (current?.status === 'cancelled') return
-  updateJob(job.id, { status: 'active', error: undefined })
+  updateJob(job.id, { status: 'active', error: undefined, errorKind: undefined })
   const result = await window.dw.files.download(job.envName, job.remotePath, job.localPath, job.id)
   const cancelled = result.error === 'Cancelled.'
   updateJob(job.id, {
     status: result.ok ? 'done' : cancelled ? 'cancelled' : 'error',
     transferred: result.ok ? 1 : 0,
-    error: result.ok || cancelled ? undefined : result.error
+    error: result.ok || cancelled ? undefined : result.error,
+    errorKind: result.ok || cancelled ? undefined : result.errorKind
   })
   const files = useFileStore.getState()
   if (result.ok && files.localPath === job.localPath) void files.loadLocal(job.localPath)
@@ -199,13 +200,36 @@ export function canRetry(job: TransferJob): boolean {
   return job.direction !== 'delete' || !job.localPath
 }
 
+/**
+ * The folder a sync folder item creates. Its fields follow the usual convention
+ * (upload: local folder -> remote parent; download: remote folder -> local parent).
+ */
+function directoryTarget(job: TransferJob): { remotePath?: string; localPath?: string } {
+  if (job.direction === 'upload') {
+    const name = job.localPath.split(/[\\/]/).filter(Boolean).pop() ?? ''
+    return { remotePath: job.remotePath === '/' ? `/${name}` : `${job.remotePath}/${name}` }
+  }
+  const name = job.remotePath.split('/').filter(Boolean).pop() ?? ''
+  const sep = job.localPath.includes('\\') ? '\\' : '/'
+  return { localPath: `${job.localPath.replace(/[\\/]+$/, '')}${sep}${name}` }
+}
+
 /** Re-runs the failed and cancelled jobs of a batch with their original parameters. */
 export async function retryBatch(batchId: string): Promise<void> {
   const { jobs, updateJob } = useTransferStore.getState()
   const failed = jobs.filter((j) => j.batchId === batchId && canRetry(j))
   for (const job of failed) {
-    updateJob(job.id, { status: 'queued', error: undefined, transferred: 0 })
-    if (job.direction === 'upload') {
+    updateJob(job.id, { status: 'queued', error: undefined, errorKind: undefined, transferred: 0 })
+    if (job.directoryOnly) {
+      updateJob(job.id, { status: 'active' })
+      const result = await window.dw.sync.makeDirectory(job.envName, directoryTarget(job))
+      updateJob(job.id, {
+        status: result.ok ? 'done' : 'error',
+        error: result.error,
+        errorKind: result.errorKind,
+        ...(result.ok ? { transferred: 1, total: 1 } : {})
+      })
+    } else if (job.direction === 'upload') {
       window.dw.files.upload(
         job.envName,
         [job.localPath],
@@ -219,7 +243,11 @@ export async function retryBatch(batchId: string): Promise<void> {
     } else {
       updateJob(job.id, { status: 'active' })
       const result = await window.dw.files.delete(job.envName, job.remotePath, job.ifMatch)
-      updateJob(job.id, { status: result.ok ? 'done' : 'error', error: result.error })
+      updateJob(job.id, {
+        status: result.ok ? 'done' : 'error',
+        error: result.error,
+        errorKind: result.errorKind
+      })
     }
   }
 }
@@ -260,7 +288,7 @@ export function initTransferListeners(): () => void {
   })
 
   const unsubDone = window.dw.on.filesDone(
-    ({ jobId, ok, error, cancelled, uploaded, skipped, skippedNames, excludedNames }) => {
+    ({ jobId, ok, error, errorKind, cancelled, uploaded, skipped, skippedNames, excludedNames }) => {
       // An upload where the server wrote nothing and skipped existing files is
       // reported as 'skipped' — not the misleading 'done' it used to show.
       const status: TransferJob['status'] = cancelled
@@ -273,6 +301,7 @@ export function initTransferListeners(): () => void {
       store.updateJob(jobId, {
         status,
         error: cancelled ? undefined : error,
+        errorKind: cancelled || ok ? undefined : errorKind,
         skippedNames,
         excludedNames: excludedNames?.length ? excludedNames : undefined,
         ...(status === 'done' ? { transferred: 1, total: 1 } : {})

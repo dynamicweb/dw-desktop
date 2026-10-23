@@ -153,6 +153,29 @@ describe('buildSyncPlan', () => {
     })
   })
 
+  it('does not delete a folder as a whole when a file in it changed on the server', async () => {
+    collectManifestMock.mockResolvedValue([
+      remote('old', 0, '', true),
+      remote('old/a.txt', 1, 'a'),
+      remote('old/b.txt', 1, 'b-v2')
+    ])
+    const state = memoryState()
+    state.markRootSynced('Templates')
+    state.recordFile('Templates/old/a.txt', { eTag: 'a', sha256: 'x', size: 1 })
+    state.recordFile('Templates/old/b.txt', { eTag: 'b-v1', sha256: 'y', size: 1 })
+
+    const result = await buildSyncPlan(env, request({ deleteExtra: true }), state)
+
+    const byPath = Object.fromEntries(result.data!.items.map((i) => [i.path, i]))
+    expect(byPath['old']).toBeUndefined()
+    expect(byPath['old/a.txt']).toMatchObject({ action: 'delete', include: true })
+    expect(byPath['old/b.txt']).toMatchObject({
+      action: 'conflict',
+      include: false,
+      reason: 'Changed on the server since your last sync'
+    })
+  })
+
   it('classifies a pull and detects a local change since the last sync', async () => {
     await writeFile(join(root, 'page.cshtml'), 'edited locally')
     collectManifestMock.mockResolvedValue([
