@@ -13,6 +13,12 @@ import * as path from 'node:path'
 const SKILL_DIR = path.resolve(import.meta.dirname, '..')
 export const LOCAL_FILE = path.join(SKILL_DIR, 'demo.local.json')
 
+/**
+ * Nothing to test against on this machine (no test site, several and none chosen,
+ * credentials refused, site down). Not a failure: the run is skipped with a note.
+ */
+export class SkipRun extends Error {}
+
 export const TEST_HOSTS = [
   /\.dwdemo\.dynamicweb\.cloud$/i,
   /\.dev01\.dynamicweb\.dk$/i,
@@ -47,7 +53,7 @@ export function userDataDir() {
 export function resolveTestEnv(requested) {
   const configPath = path.join(userDataDir(), 'config.json')
   if (!fs.existsSync(configPath))
-    throw new Error(`DW Desktop has no configuration at ${configPath}. Add the test site in the app first.`)
+    throw new SkipRun('DW Desktop has no configuration on this machine, so there is no test site to use.')
   const environments = JSON.parse(fs.readFileSync(configPath, 'utf8')).environments ?? []
   const eligible = environments.filter((e) => isTestHost(e.host) && e.kind !== 'production')
   const list = eligible.map((e) => `${e.name} (${e.host})`).join(', ') || 'none'
@@ -59,10 +65,14 @@ export function resolveTestEnv(requested) {
     env = environments.find((e) => e.name === name)
     if (!env) throw new Error(`"${name}" isn't an environment in DW Desktop. Test environments: ${list}.`)
   } else {
-    if (eligible.length !== 1)
-      throw new Error(
-        `${eligible.length} test environments configured (${list}). Pick one with --env <name> ` +
-          `or set a default in ${LOCAL_FILE}: { "env": "<name>" }.`
+    if (eligible.length === 0)
+      throw new SkipRun(
+        'no test environment in DW Desktop (a *.dwdemo.dynamicweb.cloud, *.dev01.dynamicweb.dk or localhost site).'
+      )
+    if (eligible.length > 1)
+      throw new SkipRun(
+        `${eligible.length} test environments (${list}) and none chosen. ` +
+          `Pass --env <name> or set a default in ${LOCAL_FILE}: { "env": "<name>" }.`
       )
     env = eligible[0]
   }

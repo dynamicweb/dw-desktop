@@ -7,6 +7,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { createDriver } from '../../run-dw-desktop/driver.mjs'
 import { captureEvents, installGuard } from './inject.mjs'
+import { SkipRun } from './target.mjs'
 
 export class Session {
   /**
@@ -107,7 +108,7 @@ export class Session {
       const auth = await this.app.evaluate(() => globalThis.__e2e.fixture.authState())
       if (auth === 'ok') return
       if (auth === 'refused')
-        throw new Error(
+        throw new SkipRun(
           `${this.env.host} refused the credentials stored for "${this.env.name}". ` +
             'Update them in DW Desktop (Settings > Environments > edit), then run again.'
         )
@@ -117,7 +118,7 @@ export class Session {
       }
       await this.page.waitForTimeout(250)
     }
-    throw new Error(`The app never reached ${this.env.host}. Is the site running?`)
+    throw new SkipRun(`the app could not reach ${this.env.host}. Is the site running?`)
   }
 
   async close({ keep = false, removeRunRoot = false } = {}) {

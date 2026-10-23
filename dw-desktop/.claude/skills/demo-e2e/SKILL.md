@@ -33,6 +33,11 @@ touches, what result proves the point, how the site gets back to normal), wait
 for the operator's yes, then run with `--allow-outside`. Never on production,
 never on a site that isn't a test host (both are refused anyway).
 
+**No test site?** When this machine has no usable test environment (none
+configured, several and none chosen, credentials refused, site down) the runner
+prints one `SKIPPED: …` line and exits 0. Mention the note in your report and
+carry on; don't stop to ask.
+
 ## Run
 
 ```bash
@@ -49,7 +54,8 @@ node .claude/skills/demo-e2e/runner.mjs list
 | `--allow-outside` | lift the run-folder check for this run - only after an approved plan |
 
 Output is one line per scenario, then the screenshot folder
-(`shots/<runId>/`, git-ignored). Exit code 0 = all passed.
+(`shots/<runId>/`, git-ignored). Exit code 0 = all passed (or skipped, see
+above); 1 = a scenario failed; 2 = the run couldn't start.
 
 ```
 demo-e2e run 20261023-092533-lgyk on abi.dwdemo (abi.dwdemo.dynamicweb.cloud)

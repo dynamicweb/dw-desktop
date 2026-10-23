@@ -17,7 +17,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Session } from './lib/session.mjs'
-import { resolveTestEnv } from './lib/target.mjs'
+import { SkipRun, resolveTestEnv } from './lib/target.mjs'
 
 const SKILL_DIR = import.meta.dirname
 const APP_DIR = path.resolve(SKILL_DIR, '../../..')
@@ -82,6 +82,20 @@ async function main() {
     let error = null
     try {
       await t.launch(scenario.launch ?? {})
+    } catch (err) {
+      // The site can't be used (credentials refused, unreachable): skip the run.
+      await t.quiet(() => t.driver?.commands.quit()).catch(() => {})
+      if (err instanceof SkipRun) {
+        fs.rmSync(localRoot, { recursive: true, force: true })
+        throw err
+      }
+      t.failures.push(`error: ${err.message.split('\n')[0]}`)
+      results.push(false)
+      console.log(`FAIL  ${scenario.name}`)
+      for (const f of t.failures) console.log(`      - ${f}`)
+      continue
+    }
+    try {
       if (i === 0) {
         const swept = await t.fixture('sweep', SANDBOX, SWEEP_AFTER_MS)
         if (swept.length) console.log(`swept ${swept.length} old run folder(s)`)
@@ -114,6 +128,11 @@ async function main() {
 main().then(
   (code) => process.exit(code),
   (err) => {
+    // Skipped is not failed: report it and let the work carry on.
+    if (err instanceof SkipRun) {
+      console.log(`SKIPPED: end-to-end tests not run - ${err.message}`)
+      process.exit(0)
+    }
     console.error(`demo-e2e: ${err.message}`)
     process.exit(2)
   }
