@@ -171,7 +171,7 @@ Click **Save this sync** to keep the folders, direction, options and exclude rul
 **Activity** lists every upload, download and sync, grouped by batch, with progress. A small progress pill at the bottom right shows running transfers while you work in other views; click it to open Activity.
 
 - **Cancel all** stops a running batch. Expand a batch to cancel a single file — the rest of the batch keeps going. A delete started from Browse is one request and can't be cancelled.
-- **Retry failed** runs the failed and cancelled items of a batch again.
+- **Retry failed** runs the failed and cancelled items of a batch again. A sync item keeps its safeguard: a server file is only replaced or deleted if it hasn't changed since the preview, otherwise the item fails again and asks you to preview the sync again.
 - **Clear finished** removes completed batches. Failed batches stay until you retry them.
 - Use the environment menu to show this environment only or all environments.
 - **Server requests** shows the raw requests to the server, for troubleshooting.

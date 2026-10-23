@@ -119,6 +119,11 @@ export interface TransferJob {
   /** Upload: local file or folder. Download: local target folder. */
   localPath: string
   overwrite?: boolean
+  /**
+   * Sync items: the server version (eTag) the preview saw. A retry replaces or deletes
+   * the server file only while it is still that version.
+   */
+  ifMatch?: string | null
   status: 'queued' | 'active' | 'done' | 'error' | 'skipped' | 'cancelled'
   transferred: number
   total: number

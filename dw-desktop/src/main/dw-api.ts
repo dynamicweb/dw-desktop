@@ -527,13 +527,24 @@ export async function uploadOneFile(
   }
 }
 
+// A replace or delete guarded by the version a sync preview saw lost to a newer
+// server file.
+function changedSincePreview(name: string, verb: string): string {
+  return `“${name}” changed on the server since the preview, so it was not ${verb}. Preview the sync again to review it.`
+}
+
+/**
+ * `ifMatch` (a sync item retried from Activity): replace only the server version the
+ * sync preview saw, so a retry cannot overwrite a change made on the server since.
+ */
 export async function uploadFiles(
   env: StoredEnv,
   localPaths: string[],
   remotePath: string,
   overwrite: boolean,
   onProgress: (transferred: number, total: number, currentFile: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  ifMatch?: string | null
 ): Promise<IPCResult<UploadSummary>> {
   try {
     const { files: allFiles, excludedNames } = await collectLocalFiles(localPaths)
@@ -569,7 +580,7 @@ export async function uploadFiles(
             transferred += bytes
             onProgress(transferred, totalBytes, file.remoteRelativePath)
           },
-          { signal }
+          { signal, ifMatch }
         )
         uploaded++
         // Files with no chunks (empty files) still need a progress tick.
@@ -583,7 +594,13 @@ export async function uploadFiles(
         }
         if (isAbortError(err)) return
         failed++
-        if (!firstError) firstError = err instanceof Error ? err.message : String(err)
+        if (!firstError)
+          firstError =
+            err instanceof FileTransferApiError && err.code === 'PRECONDITION_FAILED'
+              ? changedSincePreview(file.remoteRelativePath, 'replaced')
+              : err instanceof Error
+                ? err.message
+                : String(err)
       }
     })
     if (signal?.aborted) return { ok: false, error: CANCELLED }
@@ -792,13 +809,25 @@ export async function downloadFile(
   }
 }
 
-export async function deleteRemote(env: StoredEnv, virtualPath: string): Promise<IPCResult> {
+/** `ifMatch`: delete only the server version a sync preview saw (see uploadFiles). */
+export async function deleteRemote(
+  env: StoredEnv,
+  virtualPath: string,
+  ifMatch?: string | null
+): Promise<IPCResult> {
   try {
-    await postJson(env, 'entries/delete', { path: toApiPath(virtualPath), recursive: true })
+    await postJson(
+      env,
+      'entries/delete',
+      { path: toApiPath(virtualPath), recursive: true },
+      ifMatch ? { 'If-Match': ifMatch } : {}
+    )
     return { ok: true }
   } catch (err) {
     // Already gone (e.g. a retried request, or deleted elsewhere): the goal is met.
     if (err instanceof FileTransferApiError && err.code === 'NOT_FOUND') return { ok: true }
+    if (err instanceof FileTransferApiError && err.code === 'PRECONDITION_FAILED')
+      return { ok: false, error: changedSincePreview(basename(virtualPath), 'deleted') }
     return errorToResult(err, env)
   }
 }

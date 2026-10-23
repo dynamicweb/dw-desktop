@@ -299,6 +299,16 @@ describe('dw-api', () => {
     expect(await deleteRemote(env, '/gone.txt')).toEqual({ ok: true })
   })
 
+  it('deleteRemote with ifMatch deletes only that version and explains a newer one', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      errorResponse(412, { code: 'PRECONDITION_FAILED', message: 'eTag mismatch' })
+    )
+    const result = await deleteRemote(env, '/Templates/old.cshtml', 'etag-1')
+    expect(headersOf(vi.mocked(fetch).mock.calls[0][1])['If-Match']).toBe('etag-1')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('“old.cshtml” changed on the server since the preview')
+  })
+
   it('copyRemote posts source/destination paths', async () => {
     vi.mocked(fetch).mockResolvedValue({ ok: true, text: async () => '' } as Response)
     const result = await copyRemote(env, '/Files/a.txt', '/Files/b.txt')
@@ -415,6 +425,42 @@ describe('dw-api', () => {
       excludedNames: ['node_modules/.DS_Store']
     })
     expect(sessionsCreated.sort()).toEqual(['Files/.DS_Store', 'Files/node_modules/lib.js'])
+  })
+
+  it('uploadFiles with ifMatch replaces only that version and explains a newer one', async () => {
+    mockLocalFile(4)
+    let finalizeInit: RequestInit | undefined
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = decodeURIComponent(String(input))
+      if (url.endsWith('/uploads') && init?.method === 'POST') {
+        return jsonResponse({ id: 's1', chunkSize: 4, totalChunks: 1 })
+      }
+      if (url.includes('/chunks/')) return jsonResponse({})
+      if (url.includes('/finalize')) {
+        finalizeInit = init
+        return errorResponse(412, { code: 'PRECONDITION_FAILED', message: 'eTag mismatch' })
+      }
+      if (init?.method === 'DELETE') return jsonResponse({})
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    const result = await uploadFiles(
+      env,
+      ['/tmp/src/theme.json'],
+      '/Files',
+      true,
+      () => undefined,
+      undefined,
+      'etag-1'
+    )
+
+    expect(headersOf(finalizeInit)['If-Match']).toBe('etag-1')
+    // With If-Match the server replaces only that version, so overwrite stays off.
+    expect(JSON.parse(finalizeInit!.body as string)).toMatchObject({ overwrite: false })
+    expect(result.ok).toBe(false)
+    expect(result.data?.firstError).toContain(
+      '“theme.json” changed on the server since the preview'
+    )
   })
 
   it('uploadFiles skips existing files when overwrite is off and reports a summary', async () => {

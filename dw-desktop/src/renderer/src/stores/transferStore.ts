@@ -211,13 +211,14 @@ export async function retryBatch(batchId: string): Promise<void> {
         [job.localPath],
         job.remotePath,
         job.overwrite ?? true,
-        job.id
+        job.id,
+        job.ifMatch
       )
     } else if (job.direction === 'download') {
       await runDownload({ ...job, status: 'queued' })
     } else {
       updateJob(job.id, { status: 'active' })
-      const result = await window.dw.files.delete(job.envName, job.remotePath)
+      const result = await window.dw.files.delete(job.envName, job.remotePath, job.ifMatch)
       updateJob(job.id, { status: result.ok ? 'done' : 'error', error: result.error })
     }
   }

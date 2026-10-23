@@ -296,6 +296,12 @@ export default function SyncView(): React.JSX.Element {
     const now = Date.now()
     const jobs: TransferJob[] = selected.map((item) => {
       const deleting = item.action === 'delete'
+      // A retry from Activity keeps the run's guards: a planned replace or delete of a
+      // server file only goes ahead while the server still has the version this
+      // preview saw, and a new file never overwrites one that appeared since. A
+      // resolved conflict was the user's call, so it overwrites.
+      const guarded =
+        push && item.type === 'file' && (item.action === 'replace' || item.action === 'delete')
       const localAbs = joinLocal(localPath, item.path)
       const remoteItem = joinRemote(remotePath, item.path)
       // Fields follow the retry convention in transferStore: upload = local file →
@@ -317,7 +323,8 @@ export default function SyncView(): React.JSX.Element {
           : push
             ? localAbs
             : parentOf(localAbs, localSep),
-        overwrite: true,
+        overwrite: item.action !== 'upload',
+        ifMatch: guarded ? (item.remoteETag ?? null) : null,
         status: 'queued',
         transferred: 0,
         total: item.size || 1,

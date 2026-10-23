@@ -59,7 +59,9 @@ export interface DWDesktopAPI {
       localPaths: string[],
       remotePath: string,
       overwrite: boolean,
-      jobId: string
+      jobId: string,
+      /** Replace only this server version (a sync item retried from Activity). */
+      ifMatch?: string | null
     ): void
     checkConflicts(
       envName: string,
@@ -73,7 +75,8 @@ export interface DWDesktopAPI {
       jobId?: string
     ): Promise<IPCResult>
     cancel(jobIds: string[]): void
-    delete(envName: string, path: string): Promise<IPCResult>
+    /** `ifMatch`: delete only this server version (a sync item retried from Activity). */
+    delete(envName: string, path: string, ifMatch?: string | null): Promise<IPCResult>
     copy(envName: string, source: string, destination: string): Promise<IPCResult>
     rename(envName: string, filePath: string, newName: string): Promise<IPCResult>
     move(envName: string, sourcePath: string, targetDir: string): Promise<IPCResult>
