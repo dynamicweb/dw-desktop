@@ -272,6 +272,14 @@ function BatchCard({
                     {job.skippedNames.length > 5 ? ` and ${job.skippedNames.length - 5} more` : ''}
                   </span>
                 )}
+                {job.excludedNames && job.excludedNames.length > 0 && (
+                  <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>
+                    Left out as junk: {job.excludedNames.slice(0, 5).join(', ')}
+                    {job.excludedNames.length > 5
+                      ? ` and ${job.excludedNames.length - 5} more`
+                      : ''}
+                  </span>
+                )}
               </span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 12, color: state.color, whiteSpace: 'nowrap' }}>

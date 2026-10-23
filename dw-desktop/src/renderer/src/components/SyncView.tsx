@@ -4,12 +4,14 @@ import {
   envKind,
   envKindLabel,
   envLabel,
+  type ExcludedEntry,
   type SyncAction,
   type SyncDirection,
   type SyncItem,
   type SyncPlan,
   type TransferJob
 } from '../../../shared/types'
+import { DEFAULT_EXCLUDES, countPatterns, patternLines } from '../../../shared/exclude'
 import { useEnvStore } from '../stores/envStore'
 import { useFileStore } from '../stores/fileStore'
 import { useToastStore } from '../stores/toastStore'
@@ -18,7 +20,14 @@ import { useUiStore } from '../stores/uiStore'
 import { folderName, useWorkspaceStore } from '../stores/workspaceStore'
 import { PromptDialog } from './Dialog'
 import { fromDisplayRemotePath, toDisplayRemotePath } from '../utils/paths'
-import { AlertIcon, ArrowLeftIcon, ArrowRightIcon, FolderIcon } from './Icons'
+import {
+  AlertIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  FolderIcon
+} from './Icons'
 
 type Resolution = 'local' | 'remote'
 
@@ -52,6 +61,106 @@ function parentOf(path: string, sep: string): string {
   return i <= 0 ? (sep === '/' ? '/' : path) : path.slice(0, i)
 }
 
+const SIDE_LABEL: Record<ExcludedEntry['side'], string> = {
+  local: 'This computer',
+  remote: 'Server',
+  both: 'Both'
+}
+
+/** What the exclude rules left out of a plan, collapsed by default. */
+function ExcludedList({
+  plan,
+  open,
+  onToggle
+}: {
+  plan: SyncPlan
+  open: boolean
+  onToggle: () => void
+}): React.JSX.Element {
+  const sources = [
+    plan.gitignores > 0 &&
+      `${plan.gitignores} .gitignore ${plan.gitignores === 1 ? 'file' : 'files'}`,
+    plan.dwignore && '.dwignore'
+  ].filter(Boolean)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          aria-expanded={open}
+          onClick={onToggle}
+        >
+          {open ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
+          Excluded ({plan.excluded.length})
+        </button>
+        <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>
+          Not transferred and not deleted
+          {sources.length > 0 && ` · rules from ${sources.join(' and ')}`}
+        </span>
+      </div>
+      {open && (
+        <div
+          role="table"
+          aria-label="Excluded"
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--r-lg)',
+            overflow: 'hidden'
+          }}
+        >
+          {plan.excluded.map((x, i) => (
+            <div
+              key={x.path}
+              role="row"
+              style={{
+                minHeight: 36,
+                display: 'grid',
+                gridTemplateColumns: '104px minmax(0, 1fr) 230px',
+                alignItems: 'center',
+                gap: 8,
+                padding: '4px 12px',
+                borderTop: i === 0 ? 'none' : '1px solid var(--border)',
+                fontSize: 12,
+                color: 'var(--text-muted)'
+              }}
+            >
+              <span>{SIDE_LABEL[x.side]}</span>
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  minWidth: 0,
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--text)'
+                }}
+              >
+                {x.type === 'directory' && (
+                  <FolderIcon size={14} style={{ color: 'var(--text-muted)' }} />
+                )}
+                <span
+                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  title={x.path}
+                >
+                  {x.path}
+                  {x.type === 'directory' ? '/' : ''}
+                </span>
+              </span>
+              <span
+                style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={x.rule}
+              >
+                {x.rule}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function SyncView(): React.JSX.Element {
   const activeEnv = useEnvStore((s) => s.activeEnv)
   const browseLocal = useFileStore((s) => s.localPath)
@@ -65,6 +174,12 @@ export default function SyncView(): React.JSX.Element {
   const [direction, setDirection] = useState<SyncDirection>('push')
   const [compareContent, setCompareContent] = useState(true)
   const [deleteExtra, setDeleteExtra] = useState(false)
+  const [useDefaultExcludes, setUseDefaultExcludes] = useState(true)
+  const [useGitignore, setUseGitignore] = useState(false)
+  const [excludeText, setExcludeText] = useState('')
+  const [showPatterns, setShowPatterns] = useState(false)
+  const [showExcluded, setShowExcluded] = useState(false)
+  const [gitignoreFound, setGitignoreFound] = useState(false)
   const [savedId, setSavedId] = useState<string | undefined>()
   const [name, setName] = useState('')
   const [plan, setPlan] = useState<SyncPlan | null>(null)
@@ -83,11 +198,26 @@ export default function SyncView(): React.JSX.Element {
     setDirection(d?.direction ?? 'push')
     setCompareContent(d?.compareContent ?? true)
     setDeleteExtra(d?.deleteExtra ?? false)
+    setUseDefaultExcludes(d?.useDefaultExcludes ?? true)
+    setUseGitignore(d?.useGitignore ?? false)
+    setExcludeText((d?.exclude ?? []).join('\n'))
+    setShowPatterns((d?.exclude ?? []).length > 0)
     setSavedId(d?.savedId)
     setName(d?.name ?? '')
     setPlan(null)
     setError(null)
   }, [syncDraft, activeEnv?.name])
+
+  // The .gitignore option is only offered where one applies (or it is already on).
+  useEffect(() => {
+    let current = true
+    void window.dw.sync.inspectLocal(localPath).then((r) => {
+      if (current) setGitignoreFound(!!r.data?.gitignore)
+    })
+    return () => {
+      current = false
+    }
+  }, [localPath])
 
   // Any change to what would be compared invalidates the preview.
   function invalidate(): void {
@@ -98,6 +228,8 @@ export default function SyncView(): React.JSX.Element {
   const push = direction === 'push'
   const production = !!activeEnv && envKind(activeEnv) === 'production'
   const displayName = name || folderName(remotePath)
+  const exclude = patternLines(excludeText)
+  const patternCount = countPatterns(exclude)
 
   async function preview(): Promise<void> {
     if (!activeEnv || !localPath) return
@@ -109,7 +241,10 @@ export default function SyncView(): React.JSX.Element {
       remotePath,
       direction,
       compareContent,
-      deleteExtra
+      deleteExtra,
+      useDefaultExcludes,
+      useGitignore,
+      exclude
     })
     setPlanning(false)
     if (!result.ok || !result.data) {
@@ -118,6 +253,7 @@ export default function SyncView(): React.JSX.Element {
       return
     }
     setPlan(result.data)
+    setShowExcluded(false)
     setInclude(new Map(result.data.items.map((i) => [i.path, i.include && i.action !== 'skip'])))
     setResolutions(new Map())
   }
@@ -160,6 +296,12 @@ export default function SyncView(): React.JSX.Element {
     const now = Date.now()
     const jobs: TransferJob[] = selected.map((item) => {
       const deleting = item.action === 'delete'
+      // A retry from Activity keeps the run's guards: a planned replace or delete of a
+      // server file only goes ahead while the server still has the version this
+      // preview saw, and a new file never overwrites one that appeared since. A
+      // resolved conflict was the user's call, so it overwrites.
+      const guarded =
+        push && item.type === 'file' && (item.action === 'replace' || item.action === 'delete')
       const localAbs = joinLocal(localPath, item.path)
       const remoteItem = joinRemote(remotePath, item.path)
       // Fields follow the retry convention in transferStore: upload = local file →
@@ -181,7 +323,8 @@ export default function SyncView(): React.JSX.Element {
           : push
             ? localAbs
             : parentOf(localAbs, localSep),
-        overwrite: true,
+        overwrite: item.action !== 'upload',
+        ifMatch: guarded ? (item.remoteETag ?? null) : null,
         status: 'queued',
         transferred: 0,
         total: item.size || 1,
@@ -216,6 +359,9 @@ export default function SyncView(): React.JSX.Element {
       direction,
       compareContent,
       deleteExtra,
+      useDefaultExcludes,
+      useGitignore,
+      exclude,
       lastRunAt: syncs.find((s) => s.id === id)?.lastRunAt
     })
     setSavedId(id)
@@ -401,6 +547,79 @@ export default function SyncView(): React.JSX.Element {
             </label>
           </div>
 
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 18 }}>
+              <label
+                style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}
+                title={DEFAULT_EXCLUDES.join('   ')}
+              >
+                <input
+                  type="checkbox"
+                  checked={useDefaultExcludes}
+                  onChange={(e) => {
+                    setUseDefaultExcludes(e.target.checked)
+                    invalidate()
+                  }}
+                  style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+                />
+                Skip common junk files (.git, node_modules, .DS_Store…)
+              </label>
+              {(gitignoreFound || useGitignore) && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={useGitignore}
+                    onChange={(e) => {
+                      setUseGitignore(e.target.checked)
+                      invalidate()
+                    }}
+                    style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+                  />
+                  Skip files listed in .gitignore
+                </label>
+              )}
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                aria-expanded={showPatterns}
+                onClick={() => setShowPatterns((v) => !v)}
+              >
+                {showPatterns ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
+                Exclude patterns{patternCount > 0 ? ` (${patternCount})` : ''}
+              </button>
+            </div>
+            {showPatterns && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <textarea
+                  className="input"
+                  aria-label="Exclude patterns"
+                  rows={4}
+                  spellCheck={false}
+                  value={excludeText}
+                  placeholder={
+                    'One pattern per line, for example:\n*.scss\n/drafts/\nDesigns/**/*.map'
+                  }
+                  onChange={(e) => {
+                    setExcludeText(e.target.value)
+                    invalidate()
+                  }}
+                  style={{
+                    height: 'auto',
+                    padding: '8px 12px',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 12,
+                    resize: 'vertical'
+                  }}
+                />
+                <span style={{ fontSize: 12, color: 'var(--text-subtle)', lineHeight: 1.45 }}>
+                  Same syntax as .gitignore; start a line with ! to include something the other
+                  rules leave out. A .dwignore file in the local folder is read too. Excluded files
+                  are neither transferred nor deleted, on either side.
+                </span>
+              </div>
+            )}
+          </div>
+
           {production && push && (
             <div
               style={{
@@ -528,6 +747,20 @@ export default function SyncView(): React.JSX.Element {
                 >
                   {plan.unchanged} unchanged
                 </span>
+                {plan.excluded.length > 0 && (
+                  <span
+                    className="chip"
+                    style={{
+                      height: 26,
+                      padding: '0 12px',
+                      fontSize: 12,
+                      background: 'var(--chip-neutral-bg)',
+                      color: 'var(--chip-neutral-fg)'
+                    }}
+                  >
+                    {plan.excluded.length} excluded
+                  </span>
+                )}
               </div>
 
               {plan.items.length === 0 ? (
@@ -682,6 +915,14 @@ export default function SyncView(): React.JSX.Element {
                     )
                   })}
                 </div>
+              )}
+
+              {plan.excluded.length > 0 && (
+                <ExcludedList
+                  plan={plan}
+                  open={showExcluded}
+                  onToggle={() => setShowExcluded((v) => !v)}
+                />
               )}
             </>
           )}

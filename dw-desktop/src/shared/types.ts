@@ -69,6 +69,12 @@ export interface SavedSync {
   direction: SyncDirection
   compareContent: boolean
   deleteExtra: boolean
+  /** Skip the built-in junk list (.git, node_modules, .DS_Store…). Unset = on. */
+  useDefaultExcludes?: boolean
+  /** Skip what .gitignore files leave out. Unset = off. */
+  useGitignore?: boolean
+  /** Extra exclude patterns, gitignore syntax. */
+  exclude?: string[]
   lastRunAt?: string
 }
 
@@ -113,12 +119,19 @@ export interface TransferJob {
   /** Upload: local file or folder. Download: local target folder. */
   localPath: string
   overwrite?: boolean
+  /**
+   * Sync items: the server version (eTag) the preview saw. A retry replaces or deletes
+   * the server file only while it is still that version.
+   */
+  ifMatch?: string | null
   status: 'queued' | 'active' | 'done' | 'error' | 'skipped' | 'cancelled'
   transferred: number
   total: number
   error?: string
   /** For uploads: base names the server skipped because they already existed. */
   skippedNames?: string[]
+  /** For uploads: junk files and folders left out of an uploaded folder. */
+  excludedNames?: string[]
   startedAt: number
 }
 
@@ -148,6 +161,20 @@ export interface SyncRequest {
   direction: SyncDirection
   compareContent: boolean
   deleteExtra: boolean
+  /** Unset = on. */
+  useDefaultExcludes?: boolean
+  /** Unset = off. */
+  useGitignore?: boolean
+  exclude?: string[]
+}
+
+/** A path an exclude rule kept out of a sync. A folder stands for everything in it. */
+export interface ExcludedEntry {
+  path: string
+  type: 'file' | 'directory'
+  side: 'local' | 'remote' | 'both'
+  /** Where the rule came from and the rule, e.g. ".gitignore: dist/". */
+  rule: string
 }
 
 export interface SyncPlan {
@@ -158,6 +185,12 @@ export interface SyncPlan {
   unchanged: number
   /** True when this folder pair was synced before, so conflicts can be detected. */
   syncedBefore: boolean
+  /** Paths left out by exclude rules, top-level only. Neither transferred nor deleted. */
+  excluded: ExcludedEntry[]
+  /** Whether a .dwignore in the local folder was used. */
+  dwignore: boolean
+  /** How many .gitignore files were used. */
+  gitignores: number
 }
 
 /** One planned item to execute, with how a conflict was resolved. */
@@ -189,6 +222,8 @@ export interface UploadSummary {
   skipped: number
   /** Target-relative paths of the skipped files. */
   skippedNames: string[]
+  /** Target-relative paths left out by the built-in junk list (a folder stands for its contents). */
+  excludedNames: string[]
   failed: number
   /** Message of the first failure, when failed > 0. */
   firstError?: string

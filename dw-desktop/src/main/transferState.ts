@@ -9,7 +9,8 @@ import type { StoredEnv } from '../shared/types'
  * (bin/transfer/state.js), kept in userData/transfer-state.json, keyed by
  * `protocol://host`:
  *
- *   files:  { "<remote api path, lower case>": { eTag, sha256, size } }  — the baseline
+ *   files:  { "<remote api path, lower case>": { eTag, sha256, size, localMtimeMs } }
+ *                                                                        — the baseline
  *   hashes: { "<remote api path, lower case>": { eTag, sha256 } }        — checksum cache
  *   roots:  { "<remote api dir, lower case>": syncedAt }                 — synced folders
  *
@@ -22,6 +23,12 @@ export interface BaselineEntry {
   /** Content hash when verified; null when the version was accepted by size and date only. */
   sha256: string | null
   size: number | null
+  /**
+   * Modified time of the local file when it last matched this version (the app wrote
+   * it, or checked it equal by content). Lets a sync by date tell a file the app just
+   * wrote from one edited since. Absent in entries from older versions.
+   */
+  localMtimeMs?: number
 }
 
 interface HostState {

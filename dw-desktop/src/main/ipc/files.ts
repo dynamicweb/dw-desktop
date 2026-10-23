@@ -85,10 +85,13 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle(
     'files:delete',
-    async (_event, { envName, path }: { envName: string; path: string }) => {
+    async (
+      _event,
+      { envName, path, ifMatch }: { envName: string; path: string; ifMatch?: string | null }
+    ) => {
       const result = getEnvOrError(envName)
       if ('ok' in result) return result
-      return deleteRemote(result.env, path)
+      return deleteRemote(result.env, path, ifMatch)
     }
   )
 
@@ -193,13 +196,15 @@ export function registerFileHandlers(): void {
         localPaths,
         remotePath,
         overwrite,
-        jobId
+        jobId,
+        ifMatch
       }: {
         envName: string
         localPaths: string[]
         remotePath: string
         overwrite: boolean
         jobId: string
+        ifMatch?: string | null
       }
     ) => {
       const result = getEnvOrError(envName)
@@ -217,7 +222,8 @@ export function registerFileHandlers(): void {
         (transferred, total, currentFile) => {
           event.sender.send('files:progress', { jobId, transferred, total, currentFile })
         },
-        controller.signal
+        controller.signal,
+        ifMatch
       )
         .then((uploadResult) => {
           event.sender.send('files:done', {
@@ -227,7 +233,8 @@ export function registerFileHandlers(): void {
             cancelled: controller.signal.aborted,
             uploaded: uploadResult.data?.uploaded,
             skipped: uploadResult.data?.skipped,
-            skippedNames: uploadResult.data?.skippedNames
+            skippedNames: uploadResult.data?.skippedNames,
+            excludedNames: uploadResult.data?.excludedNames
           })
         })
         .catch((err: Error) => {

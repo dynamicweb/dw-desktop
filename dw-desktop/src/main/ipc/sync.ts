@@ -1,5 +1,6 @@
 import { ipcMain, shell } from 'electron'
 import { releaseJobs, trackJobs } from '../cancellation'
+import { hasGitignore } from '../exclude'
 import { buildSyncPlan, runSyncPlan } from '../sync'
 import { getEnvOrError } from './files'
 import type { IPCResult, SyncPlan, SyncRequest, SyncRunItem } from '../../shared/types'
@@ -11,6 +12,13 @@ export function registerSyncHandlers(): void {
       const result = getEnvOrError(request.envName)
       if ('ok' in result) return result as IPCResult<SyncPlan>
       return buildSyncPlan(result.env, request)
+    }
+  )
+
+  ipcMain.handle(
+    'sync:inspectLocal',
+    async (_event, localPath: string): Promise<IPCResult<{ gitignore: boolean }>> => {
+      return { ok: true, data: { gitignore: await hasGitignore(localPath) } }
     }
   )
 

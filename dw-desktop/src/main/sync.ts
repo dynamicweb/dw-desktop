@@ -18,8 +18,10 @@ import {
   uploadOneFile,
   type FileTransferEntry
 } from './dw-api'
-import { createTransferState, type TransferState } from './transferState'
+import { loadExclusions, type Exclusions } from './exclude'
+import { createTransferState, type BaselineEntry, type TransferState } from './transferState'
 import type {
+  ExcludedEntry,
   IPCResult,
   StoredEnv,
   SyncAction,
@@ -38,6 +40,10 @@ import type {
  * Push (deploy to server): local-only → upload, different → replace, remote-only →
  * skip (or delete when `deleteExtra`). Pull (get from server) is the mirror image;
  * local deletes go to the OS trash.
+ *
+ * Exclude rules (see exclude.ts) apply to both sides: an excluded path is neither
+ * transferred nor deleted, and a folder holding an excluded path is never deleted
+ * as a whole — its other contents are deleted one by one instead.
  *
  * Conflicts: once a folder has been synced, the transfer state holds the version of
  * every file as the app left it. A replace or delete that would discard a change
@@ -79,34 +85,99 @@ const MAX_PLANS = 10
 // same-size file counts as unchanged when content isn't compared.
 const MTIME_TOLERANCE_MS = 2000
 
+/**
+ * Whether the side a sync copies from still holds what the last sync left there. By
+ * date alone that can't be told: the server dates a file by when it was written
+ * there and a download is dated by when it landed here, so right after a sync every
+ * file looks newer on the side the app just wrote.
+ */
+function sourceUnchangedSinceSync(
+  push: boolean,
+  base: BaselineEntry | null,
+  local: LocalFile,
+  remote: FileTransferEntry
+): boolean {
+  if (!base) return false
+  if (!push) return !!remote.eTag && base.eTag === remote.eTag
+  return (
+    base.size === local.size &&
+    base.localMtimeMs !== undefined &&
+    Math.abs(base.localMtimeMs - local.mtimeMs) < 1
+  )
+}
+
 export async function hashFile(path: string): Promise<string> {
   const hash = createHash('sha256')
   for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer)
   return hash.digest('hex')
 }
 
-/** Lists a local folder as '/'-separated relative paths, keyed lower case like the server. */
-export async function walkLocal(root: string): Promise<{
+type Excluded = Omit<ExcludedEntry, 'side'>
+
+/**
+ * Lists a local folder as '/'-separated relative paths, keyed lower case like the
+ * server. Excluded paths are left out and reported; excluded folders aren't entered.
+ */
+export async function walkLocal(
+  root: string,
+  exclusions?: Exclusions
+): Promise<{
   files: Map<string, LocalFile>
   dirs: Map<string, { path: string; absolute: string }>
+  excluded: Excluded[]
 }> {
   const files = new Map<string, LocalFile>()
   const dirs = new Map<string, { path: string; absolute: string }>()
+  const excluded: Excluded[] = []
   async function walk(dir: string, prefix: string): Promise<void> {
+    if (prefix) await exclusions?.enterDir(dir, prefix)
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name
       const absolute = join(dir, entry.name)
-      if (entry.isDirectory()) {
+      const isDir = entry.isDirectory()
+      if (!isDir && !entry.isFile()) continue
+      const rule = exclusions?.match(rel, isDir)
+      if (rule) {
+        excluded.push({ path: rel, type: isDir ? 'directory' : 'file', rule })
+        continue
+      }
+      if (isDir) {
         dirs.set(rel.toLowerCase(), { path: rel, absolute })
         await walk(absolute, rel)
-      } else if (entry.isFile()) {
+      } else {
         const s = await stat(absolute)
         files.set(rel.toLowerCase(), { path: rel, absolute, size: s.size, mtimeMs: s.mtimeMs })
       }
     }
   }
   await walk(root, '')
-  return { files, dirs }
+  return { files, dirs, excluded }
+}
+
+function parentPath(path: string): string {
+  const i = path.lastIndexOf('/')
+  return i < 0 ? '' : path.slice(0, i)
+}
+
+/** Lower-cased folders that hold an excluded path: these must never be deleted whole. */
+function pinnedFolders(excluded: Excluded[]): Set<string> {
+  const pinned = new Set<string>()
+  for (const x of excluded) {
+    for (let dir = parentPath(x.path.toLowerCase()); dir; dir = parentPath(dir)) pinned.add(dir)
+  }
+  return pinned
+}
+
+/** One row per path, marked with the side(s) it was found on. */
+function mergeExcluded(local: Excluded[], remote: Excluded[]): ExcludedEntry[] {
+  const merged = new Map<string, ExcludedEntry>()
+  for (const x of local) merged.set(x.path.toLowerCase(), { ...x, side: 'local' })
+  for (const x of remote) {
+    const key = x.path.toLowerCase()
+    const seen = merged.get(key)
+    merged.set(key, seen ? { ...seen, side: 'both' } : { ...x, side: 'remote' })
+  }
+  return [...merged.values()].sort((a, b) => (a.path.toLowerCase() < b.path.toLowerCase() ? -1 : 1))
 }
 
 function joinApi(root: string, rel: string): string {
@@ -147,14 +218,21 @@ export async function buildSyncPlan(
   try {
     const push = request.direction === 'push'
     const apiRoot = toApiPath(request.remotePath)
+    const exclusions = await loadExclusions({
+      localRoot: request.localPath,
+      apiRoot,
+      useDefaults: request.useDefaultExcludes ?? true,
+      useGitignore: request.useGitignore ?? false,
+      patterns: request.exclude ?? []
+    })
 
     let local: Awaited<ReturnType<typeof walkLocal>>
     try {
-      local = await walkLocal(request.localPath)
+      local = await walkLocal(request.localPath, exclusions)
     } catch {
       if (push)
         return { ok: false, error: `The local folder “${request.localPath}” doesn’t exist.` }
-      local = { files: new Map(), dirs: new Map() }
+      local = { files: new Map(), dirs: new Map(), excluded: [] }
     }
 
     let remoteEntries: FileTransferEntry[]
@@ -167,8 +245,21 @@ export async function buildSyncPlan(
     }
     const remoteFiles = new Map<string, FileTransferEntry>()
     const remoteDirs = new Map<string, FileTransferEntry>()
-    for (const e of remoteEntries)
-      (e.isDirectory ? remoteDirs : remoteFiles).set(e.path.toLowerCase(), e)
+    const remoteExcluded: Excluded[] = []
+    for (const e of remoteEntries) {
+      const rule = exclusions.match(e.path, e.isDirectory)
+      if (rule) {
+        // The manifest lists everything; report only the outermost excluded path.
+        const parent = parentPath(e.path)
+        if (!parent || !exclusions.match(parent, true))
+          remoteExcluded.push({ path: e.path, type: e.isDirectory ? 'directory' : 'file', rule })
+        continue
+      }
+      if (e.isDirectory) remoteDirs.set(e.path.toLowerCase(), e)
+      else remoteFiles.set(e.path.toLowerCase(), e)
+    }
+    const excluded = mergeExcluded(local.excluded, remoteExcluded)
+    const pinned = pinnedFolders(excluded)
 
     const syncedBefore = state.isTracked(apiRoot)
     const details = new Map<string, PlanDetail>()
@@ -218,7 +309,7 @@ export async function buildSyncPlan(
         d.localSha = ls
         d.remoteSha = rs
         if (ls !== rs) reason = 'Content differs'
-      } else {
+      } else if (!sourceUnchangedSinceSync(push, state.getFile(apiPath), l, r)) {
         const delta = l.mtimeMs - Date.parse(r.modifiedUtc)
         if (push && delta > MTIME_TOLERANCE_MS) reason = 'Newer on this computer'
         if (!push && delta < -MTIME_TOLERANCE_MS) reason = 'Newer on the server'
@@ -236,7 +327,7 @@ export async function buildSyncPlan(
       if (remoteDirs.has(k)) continue
       if (push)
         add({ item: item(dir.path, 'directory', 'upload', 'New folder'), localDir: dir.absolute })
-      else if (request.deleteExtra)
+      else if (request.deleteExtra && !pinned.has(k))
         add({
           item: item(dir.path, 'directory', 'delete', 'Not on the server'),
           localDir: dir.absolute
@@ -245,7 +336,7 @@ export async function buildSyncPlan(
     for (const [k, dir] of remoteDirs) {
       if (local.dirs.has(k)) continue
       if (!push) add({ item: item(dir.path, 'directory', 'download', 'New folder'), remote: dir })
-      else if (request.deleteExtra)
+      else if (request.deleteExtra && !pinned.has(k))
         add({ item: item(dir.path, 'directory', 'delete', 'Not on this computer'), remote: dir })
     }
 
@@ -293,7 +384,10 @@ export async function buildSyncPlan(
       request,
       items,
       unchanged: unchanged.length,
-      syncedBefore
+      syncedBefore,
+      excluded,
+      dwignore: exclusions.dwignore,
+      gitignores: exclusions.gitignores
     }
     plans.set(plan.id, { env, plan, apiRoot, localRoot: request.localPath, details, unchanged })
     while (plans.size > MAX_PLANS) plans.delete(plans.keys().next().value as string)
@@ -417,7 +511,8 @@ export async function runSyncPlan(
         state.recordFile(apiPath, {
           eTag: completion.eTag,
           sha256: completion.sha256,
-          size: completion.size
+          size: completion.size,
+          localMtimeMs: d.local.mtimeMs
         })
       } else if (!push && d.remote) {
         const target = localPathFor(localRoot, it.path)
@@ -427,7 +522,8 @@ export async function runSyncPlan(
         state.recordFile(apiPath, {
           eTag: d.remote.eTag ?? '',
           sha256: await hashFile(target),
-          size: d.remote.size
+          size: d.remote.size,
+          localMtimeMs: (await stat(target)).mtimeMs
         })
       }
       finish(run.jobId, { ok: true })
@@ -454,13 +550,19 @@ export async function runSyncPlan(
     result.cancelled = !!signal?.aborted
     if (!result.cancelled) {
       // Files found equal when planning are verified in sync: they join the baseline.
+      // What was known about an unchanged server version is kept; the local time only
+      // moves when the content was checked equal, so a later edit still shows.
       for (const d of stored.unchanged) {
         if (!d.remote?.eTag) continue
-        const sha = d.localSha && d.localSha === d.remoteSha ? d.localSha : null
-        state.recordFile(joinApi(apiRoot, d.item.path), {
+        const apiPath = joinApi(apiRoot, d.item.path)
+        const verified = !!d.localSha && d.localSha === d.remoteSha
+        const known = state.getFile(apiPath)
+        const same = known?.eTag === d.remote.eTag ? known : null
+        state.recordFile(apiPath, {
           eTag: d.remote.eTag,
-          sha256: sha,
-          size: d.remote.size
+          sha256: verified ? (d.localSha ?? null) : (same?.sha256 ?? null),
+          size: d.remote.size,
+          localMtimeMs: verified ? d.local?.mtimeMs : same?.localMtimeMs
         })
       }
       state.markRootSynced(apiRoot)

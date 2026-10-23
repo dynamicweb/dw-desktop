@@ -199,6 +199,235 @@ describe('buildSyncPlan', () => {
   })
 })
 
+describe('buildSyncPlan with exclude rules', () => {
+  function paths(items: { path: string; action: string }[]): Record<string, string> {
+    return Object.fromEntries(items.map((i) => [i.path, i.action]))
+  }
+
+  it('leaves out local junk on a push and reports it once per folder', async () => {
+    await mkdir(join(root, '.git', 'objects'), { recursive: true })
+    await writeFile(join(root, '.git', 'objects', 'abc'), 'x')
+    await writeFile(join(root, '.DS_Store'), 'x')
+    await writeFile(join(root, 'page.cshtml'), 'x')
+    collectManifestMock.mockResolvedValue([])
+
+    const result = await buildSyncPlan(env, request(), memoryState())
+
+    expect(paths(result.data!.items)).toEqual({ 'page.cshtml': 'upload' })
+    expect(result.data!.excluded).toEqual([
+      { path: '.DS_Store', type: 'file', side: 'local', rule: 'Built-in: .DS_Store' },
+      { path: '.git', type: 'directory', side: 'local', rule: 'Built-in: .git/' }
+    ])
+  })
+
+  it('includes junk when the built-in list is turned off', async () => {
+    await writeFile(join(root, '.DS_Store'), 'x')
+    collectManifestMock.mockResolvedValue([])
+
+    const result = await buildSyncPlan(env, request({ useDefaultExcludes: false }), memoryState())
+
+    expect(paths(result.data!.items)).toEqual({ '.DS_Store': 'upload' })
+    expect(result.data!.excluded).toEqual([])
+  })
+
+  it('with deleteExtra, keeps server files that match a pattern', async () => {
+    collectManifestMock.mockResolvedValue([
+      remote('notes.md', 1, 'n'),
+      remote('drafts', 0, '', true),
+      remote('drafts/a.txt', 1, 'a'),
+      remote('stale.txt', 1, 's')
+    ])
+
+    const result = await buildSyncPlan(
+      env,
+      request({ deleteExtra: true, exclude: ['*.md', 'drafts/'] }),
+      memoryState()
+    )
+
+    expect(paths(result.data!.items)).toEqual({ 'stale.txt': 'delete' })
+    expect(result.data!.excluded.map((x) => [x.path, x.side])).toEqual([
+      ['drafts', 'remote'],
+      ['notes.md', 'remote']
+    ])
+  })
+
+  it('with deleteExtra, never deletes a folder that holds a protected server folder', async () => {
+    collectManifestMock.mockResolvedValue([
+      remote('System', 0, '', true),
+      remote('System/Log', 0, '', true),
+      remote('System/Log/today.log', 1, 'l'),
+      remote('System/old.config', 1, 'o'),
+      remote('System/Old', 0, '', true),
+      remote('System/Old/a.txt', 1, 'a'),
+      remote('Cache.net', 0, '', true)
+    ])
+
+    const result = await buildSyncPlan(
+      env,
+      request({ remotePath: '/', deleteExtra: true }),
+      memoryState()
+    )
+
+    // System itself stays; what else is in it is deleted item by item.
+    expect(paths(result.data!.items)).toEqual({
+      'System/Old': 'delete',
+      'System/old.config': 'delete'
+    })
+    expect(result.data!.excluded.map((x) => x.path)).toEqual(['Cache.net', 'System/Log'])
+  })
+
+  it('on a pull with deleteExtra, does not trash a local-only folder that holds a repository', async () => {
+    await mkdir(join(root, 'Designs', '.git'), { recursive: true })
+    await writeFile(join(root, 'Designs', '.git', 'HEAD'), 'x')
+    await writeFile(join(root, 'Designs', 'old.css'), 'x')
+    collectManifestMock.mockResolvedValue([])
+
+    const result = await buildSyncPlan(
+      env,
+      request({ direction: 'pull', deleteExtra: true }),
+      memoryState()
+    )
+
+    expect(paths(result.data!.items)).toEqual({ 'Designs/old.css': 'delete' })
+  })
+
+  it('applies a .gitignore only when asked, on both sides', async () => {
+    await writeFile(join(root, '.gitignore'), 'dist/\n.env\n')
+    await mkdir(join(root, 'dist'))
+    await writeFile(join(root, 'dist', 'app.js'), 'x')
+    await writeFile(join(root, '.env'), 'secret')
+    collectManifestMock.mockResolvedValue([remote('dist', 0, '', true)])
+
+    const off = await buildSyncPlan(env, request(), memoryState())
+    expect(paths(off.data!.items)).toEqual({
+      '.env': 'upload',
+      '.gitignore': 'upload',
+      'dist/app.js': 'upload'
+    })
+    expect(off.data!.gitignores).toBe(0)
+
+    const on = await buildSyncPlan(env, request({ useGitignore: true }), memoryState())
+    expect(paths(on.data!.items)).toEqual({ '.gitignore': 'upload' })
+    expect(on.data!.gitignores).toBe(1)
+    expect(on.data!.excluded).toEqual([
+      { path: '.env', type: 'file', side: 'local', rule: '.gitignore: .env' },
+      { path: 'dist', type: 'directory', side: 'both', rule: '.gitignore: dist/' }
+    ])
+  })
+
+  it('reads .dwignore from the local folder', async () => {
+    await writeFile(join(root, '.dwignore'), '*.scss\n')
+    await writeFile(join(root, 'site.scss'), 'x')
+    await writeFile(join(root, 'site.css'), 'x')
+    collectManifestMock.mockResolvedValue([])
+
+    const result = await buildSyncPlan(env, request(), memoryState())
+
+    expect(paths(result.data!.items)).toEqual({ 'site.css': 'upload' })
+    expect(result.data!.dwignore).toBe(true)
+  })
+})
+
+describe('sync by date after a sync', () => {
+  const dayAgo = new Date(Date.now() - 24 * 3600 * 1000)
+  // The server dates a file by when it was written there: now.
+  const serverNow = (path: string, size: number, eTag: string): object => ({
+    ...remote(path, size, eTag),
+    modifiedUtc: new Date().toISOString()
+  })
+
+  it('a Get skips a file the server has not changed since the last sync', async () => {
+    await writeFile(join(root, 'a.txt'), 'abcd')
+    await utimes(join(root, 'a.txt'), dayAgo, dayAgo)
+    collectManifestMock.mockResolvedValue([serverNow('a.txt', 4, 'e1')])
+    const state = memoryState()
+    state.recordFile('Templates/a.txt', { eTag: 'e1', sha256: 's', size: 4 })
+
+    const plan = (
+      await buildSyncPlan(env, request({ direction: 'pull', compareContent: false }), state)
+    ).data!
+
+    expect(plan.items).toEqual([])
+    expect(plan.unchanged).toBe(1)
+  })
+
+  it('a Get still takes a file the server changed since the last sync', async () => {
+    await writeFile(join(root, 'a.txt'), 'abcd')
+    await utimes(join(root, 'a.txt'), dayAgo, dayAgo)
+    collectManifestMock.mockResolvedValue([serverNow('a.txt', 4, 'e2')])
+    const state = memoryState()
+    state.recordFile('Templates/a.txt', { eTag: 'e1', sha256: 's', size: 4 })
+
+    const plan = (
+      await buildSyncPlan(env, request({ direction: 'pull', compareContent: false }), state)
+    ).data!
+
+    expect(plan.items[0]).toMatchObject({ action: 'replace', reason: 'Newer on the server' })
+  })
+
+  it('a Deploy skips a file left as the last sync wrote it, and takes one edited since', async () => {
+    await writeFile(join(root, 'kept.txt'), 'abcd')
+    await writeFile(join(root, 'edited.txt'), 'abcd')
+    const { stat } = await import('fs/promises')
+    const keptMtime = (await stat(join(root, 'kept.txt'))).mtimeMs
+    collectManifestMock.mockResolvedValue([
+      remote('kept.txt', 4, 'k1'),
+      remote('edited.txt', 4, 'd1')
+    ])
+    const state = memoryState()
+    state.recordFile('Templates/kept.txt', {
+      eTag: 'k1',
+      sha256: 's',
+      size: 4,
+      localMtimeMs: keptMtime
+    })
+    state.recordFile('Templates/edited.txt', { eTag: 'd1', sha256: 's', size: 4, localMtimeMs: 1 })
+
+    const plan = (await buildSyncPlan(env, request({ compareContent: false }), state)).data!
+
+    expect(plan.items.map((i) => [i.path, i.reason])).toEqual([
+      ['edited.txt', 'Newer on this computer']
+    ])
+  })
+
+  it('records the local time of what it wrote, and keeps what it knew about unchanged files', async () => {
+    await writeFile(join(root, 'up.txt'), 'new')
+    await writeFile(join(root, 'same.txt'), 'abcd')
+    await utimes(join(root, 'same.txt'), dayAgo, dayAgo)
+    collectManifestMock.mockResolvedValue([remote('same.txt', 4, 's1')])
+    const state = memoryState()
+    state.recordFile('Templates/same.txt', {
+      eTag: 's1',
+      sha256: 'known',
+      size: 4,
+      localMtimeMs: 7
+    })
+    const plan = (await buildSyncPlan(env, request({ compareContent: false }), state)).data!
+    uploadOneFileMock.mockResolvedValue({ targetPath: 'x', size: 3, sha256: 'h', eTag: 'u1' })
+
+    await runSyncPlan(
+      plan.id,
+      [{ jobId: 'j', path: 'up.txt' }],
+      { progress: vi.fn(), done: vi.fn() },
+      {
+        state,
+        trash: vi.fn()
+      }
+    )
+
+    const { stat } = await import('fs/promises')
+    expect(state.getFile('Templates/up.txt')).toMatchObject({
+      eTag: 'u1',
+      localMtimeMs: (await stat(join(root, 'up.txt'))).mtimeMs
+    })
+    // Accepted by date only: the known checksum and local time stay as they were.
+    expect(state.getFile('Templates/same.txt')).toMatchObject({
+      sha256: 'known',
+      localMtimeMs: 7
+    })
+  })
+})
+
 describe('runSyncPlan', () => {
   const events = { progress: vi.fn(), done: vi.fn() }
   const trash = vi.fn().mockResolvedValue(undefined)

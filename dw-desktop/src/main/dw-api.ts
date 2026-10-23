@@ -6,6 +6,7 @@ import { Readable } from 'stream'
 import { pipeline } from 'stream/promises'
 import type { ReadableStream as WebReadableStream } from 'stream/web'
 import { resolveAuthHeader } from './auth'
+import { defaultExclusions } from './exclude'
 import { FILE_TRANSFER_UNSUPPORTED, humanizeAuthError } from '../shared/authErrors'
 import type {
   FileEntry,
@@ -254,34 +255,53 @@ export interface UploadableFile {
   size: number
 }
 
-async function collectLocalFiles(localPaths: string[]): Promise<UploadableFile[]> {
+// Files picked one by one are always uploaded. Inside a picked folder, the built-in
+// junk list (.git, node_modules, .DS_Store…) is left out, matched relative to that
+// folder so picking a folder that is itself named e.g. node_modules still works.
+async function collectLocalFiles(
+  localPaths: string[]
+): Promise<{ files: UploadableFile[]; excludedNames: string[] }> {
   const files: UploadableFile[] = []
+  const excludedNames: string[] = []
+  const excluded = defaultExclusions()
   for (const localPath of localPaths) {
     const fileStat = await stat(localPath)
     if (fileStat.isDirectory()) {
-      files.push(...(await collectDirectoryFiles(dirname(localPath), localPath)))
+      const rootPath = dirname(localPath)
+      const skip = (childPath: string, isDir: boolean): boolean => {
+        if (!excluded(toSlashes(relative(localPath, childPath)), isDir)) return false
+        excludedNames.push(toSlashes(relative(rootPath, childPath)))
+        return true
+      }
+      files.push(...(await collectDirectoryFiles(rootPath, localPath, skip)))
     } else {
       files.push({ localPath, remoteRelativePath: basename(localPath), size: fileStat.size })
     }
   }
-  return files
+  return { files, excludedNames }
+}
+
+function toSlashes(path: string): string {
+  return path.replace(/\\/g, '/')
 }
 
 async function collectDirectoryFiles(
   rootPath: string,
-  currentPath: string
+  currentPath: string,
+  skip: (childPath: string, isDir: boolean) => boolean
 ): Promise<UploadableFile[]> {
   const children = await readdir(currentPath, { withFileTypes: true })
   const files: UploadableFile[] = []
   for (const child of children) {
     const childPath = join(currentPath, child.name)
+    if (skip(childPath, child.isDirectory())) continue
     if (child.isDirectory()) {
-      files.push(...(await collectDirectoryFiles(rootPath, childPath)))
+      files.push(...(await collectDirectoryFiles(rootPath, childPath, skip)))
     } else {
       const childStat = await stat(childPath)
       files.push({
         localPath: childPath,
-        remoteRelativePath: relative(rootPath, childPath).replace(/\\/g, '/'),
+        remoteRelativePath: toSlashes(relative(rootPath, childPath)),
         size: childStat.size
       })
     }
@@ -371,7 +391,7 @@ export async function checkUploadConflicts(
   remotePath: string
 ): Promise<IPCResult<UploadConflictInfo>> {
   try {
-    const files = await collectLocalFiles(localPaths)
+    const { files } = await collectLocalFiles(localPaths)
     const remoteApiBase = toApiPath(remotePath)
     const conflictSet = await findExistingTargets(env, files, remoteApiBase)
     const conflicts = files
@@ -507,16 +527,27 @@ export async function uploadOneFile(
   }
 }
 
+// A replace or delete guarded by the version a sync preview saw lost to a newer
+// server file.
+function changedSincePreview(name: string, verb: string): string {
+  return `“${name}” changed on the server since the preview, so it was not ${verb}. Preview the sync again to review it.`
+}
+
+/**
+ * `ifMatch` (a sync item retried from Activity): replace only the server version the
+ * sync preview saw, so a retry cannot overwrite a change made on the server since.
+ */
 export async function uploadFiles(
   env: StoredEnv,
   localPaths: string[],
   remotePath: string,
   overwrite: boolean,
   onProgress: (transferred: number, total: number, currentFile: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  ifMatch?: string | null
 ): Promise<IPCResult<UploadSummary>> {
   try {
-    const allFiles = await collectLocalFiles(localPaths)
+    const { files: allFiles, excludedNames } = await collectLocalFiles(localPaths)
     const remoteApiBase = toApiPath(remotePath)
 
     // With overwrite off, existing targets are skipped (never failed): resolve
@@ -549,7 +580,7 @@ export async function uploadFiles(
             transferred += bytes
             onProgress(transferred, totalBytes, file.remoteRelativePath)
           },
-          { signal }
+          { signal, ifMatch }
         )
         uploaded++
         // Files with no chunks (empty files) still need a progress tick.
@@ -563,7 +594,13 @@ export async function uploadFiles(
         }
         if (isAbortError(err)) return
         failed++
-        if (!firstError) firstError = err instanceof Error ? err.message : String(err)
+        if (!firstError)
+          firstError =
+            err instanceof FileTransferApiError && err.code === 'PRECONDITION_FAILED'
+              ? changedSincePreview(file.remoteRelativePath, 'replaced')
+              : err instanceof Error
+                ? err.message
+                : String(err)
       }
     })
     if (signal?.aborted) return { ok: false, error: CANCELLED }
@@ -572,6 +609,7 @@ export async function uploadFiles(
       uploaded,
       skipped: skippedNames.length,
       skippedNames,
+      excludedNames,
       failed,
       firstError
     }
@@ -771,13 +809,25 @@ export async function downloadFile(
   }
 }
 
-export async function deleteRemote(env: StoredEnv, virtualPath: string): Promise<IPCResult> {
+/** `ifMatch`: delete only the server version a sync preview saw (see uploadFiles). */
+export async function deleteRemote(
+  env: StoredEnv,
+  virtualPath: string,
+  ifMatch?: string | null
+): Promise<IPCResult> {
   try {
-    await postJson(env, 'entries/delete', { path: toApiPath(virtualPath), recursive: true })
+    await postJson(
+      env,
+      'entries/delete',
+      { path: toApiPath(virtualPath), recursive: true },
+      ifMatch ? { 'If-Match': ifMatch } : {}
+    )
     return { ok: true }
   } catch (err) {
     // Already gone (e.g. a retried request, or deleted elsewhere): the goal is met.
     if (err instanceof FileTransferApiError && err.code === 'NOT_FOUND') return { ok: true }
+    if (err instanceof FileTransferApiError && err.code === 'PRECONDITION_FAILED')
+      return { ok: false, error: changedSincePreview(basename(virtualPath), 'deleted') }
     return errorToResult(err, env)
   }
 }

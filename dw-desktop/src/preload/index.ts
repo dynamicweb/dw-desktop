@@ -30,6 +30,7 @@ interface DonePayload {
   uploaded?: number
   skipped?: number
   skippedNames?: string[]
+  excludedNames?: string[]
   cancelled?: boolean
 }
 
@@ -64,9 +65,17 @@ const dw = {
       localPaths: string[],
       remotePath: string,
       overwrite: boolean,
-      jobId: string
+      jobId: string,
+      ifMatch?: string | null
     ): void => {
-      ipcRenderer.send('files:upload', { envName, localPaths, remotePath, overwrite, jobId })
+      ipcRenderer.send('files:upload', {
+        envName,
+        localPaths,
+        remotePath,
+        overwrite,
+        jobId,
+        ifMatch
+      })
     },
     checkConflicts: (
       envName: string,
@@ -82,8 +91,8 @@ const dw = {
     ): Promise<IPCResult> =>
       ipcRenderer.invoke('files:download', { envName, remotePath, localPath, jobId }),
     cancel: (jobIds: string[]): void => ipcRenderer.send('files:cancel', { jobIds }),
-    delete: (envName: string, path: string): Promise<IPCResult> =>
-      ipcRenderer.invoke('files:delete', { envName, path }),
+    delete: (envName: string, path: string, ifMatch?: string | null): Promise<IPCResult> =>
+      ipcRenderer.invoke('files:delete', { envName, path, ifMatch }),
     copy: (envName: string, source: string, destination: string): Promise<IPCResult> =>
       ipcRenderer.invoke('files:copy', { envName, source, destination }),
     rename: (envName: string, filePath: string, newName: string): Promise<IPCResult> =>
@@ -97,7 +106,9 @@ const dw = {
     plan: (request: SyncRequest): Promise<IPCResult<SyncPlan>> =>
       ipcRenderer.invoke('sync:plan', request),
     run: (planId: string, items: SyncRunItem[]): void =>
-      ipcRenderer.send('sync:run', { planId, items })
+      ipcRenderer.send('sync:run', { planId, items }),
+    inspectLocal: (localPath: string): Promise<IPCResult<{ gitignore: boolean }>> =>
+      ipcRenderer.invoke('sync:inspectLocal', localPath)
   },
   activity: {
     load: (): Promise<TransferJob[]> => ipcRenderer.invoke('activity:load'),

@@ -10,6 +10,9 @@ export interface SyncDraft {
   direction?: SyncDirection
   compareContent?: boolean
   deleteExtra?: boolean
+  useDefaultExcludes?: boolean
+  useGitignore?: boolean
+  exclude?: string[]
   /** Saved sync this draft came from, so it can be updated in place. */
   savedId?: string
   name?: string

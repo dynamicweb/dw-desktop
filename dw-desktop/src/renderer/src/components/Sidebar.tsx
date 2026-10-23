@@ -513,6 +513,9 @@ export default function Sidebar(): React.JSX.Element {
                       direction: s.direction,
                       compareContent: s.compareContent,
                       deleteExtra: s.deleteExtra,
+                      useDefaultExcludes: s.useDefaultExcludes,
+                      useGitignore: s.useGitignore,
+                      exclude: s.exclude,
                       savedId: s.id,
                       name: s.name
                     })

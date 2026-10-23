@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { join } from 'path'
 
 const {
   mkdirMock,
@@ -298,6 +299,16 @@ describe('dw-api', () => {
     expect(await deleteRemote(env, '/gone.txt')).toEqual({ ok: true })
   })
 
+  it('deleteRemote with ifMatch deletes only that version and explains a newer one', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      errorResponse(412, { code: 'PRECONDITION_FAILED', message: 'eTag mismatch' })
+    )
+    const result = await deleteRemote(env, '/Templates/old.cshtml', 'etag-1')
+    expect(headersOf(vi.mocked(fetch).mock.calls[0][1])['If-Match']).toBe('etag-1')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('“old.cshtml” changed on the server since the preview')
+  })
+
   it('copyRemote posts source/destination paths', async () => {
     vi.mocked(fetch).mockResolvedValue({ ok: true, text: async () => '' } as Response)
     const result = await copyRemote(env, '/Files/a.txt', '/Files/b.txt')
@@ -345,6 +356,111 @@ describe('dw-api', () => {
 
     expect(result.ok).toBe(true)
     expect(result.data).toEqual({ totalFiles: 2, conflicts: ['a.txt'] })
+  })
+
+  // A local tree for folder uploads: folder path → child names (a trailing '/' marks a folder).
+  function mockLocalTree(tree: Record<string, string[]>): void {
+    const folders = new Set(Object.keys(tree).map((p) => join(p)))
+    statMock.mockImplementation(async (p: string) => {
+      const isDir = folders.has(join(p))
+      return { isDirectory: () => isDir, isFile: () => !isDir, size: 4 }
+    })
+    readdirMock.mockImplementation(async (p: string) => {
+      const entry = Object.entries(tree).find(([folder]) => join(folder) === join(p))
+      return (entry?.[1] ?? []).map((name) => ({
+        name: name.replace(/\/$/, ''),
+        isDirectory: () => name.endsWith('/')
+      }))
+    })
+    readMock.mockImplementation((buffer: Buffer, offset: number, length: number) => {
+      buffer.fill(66, offset, offset + length)
+      return Promise.resolve({ bytesRead: length })
+    })
+  }
+
+  it('checkUploadConflicts leaves junk out of an uploaded folder without listing it', async () => {
+    mockLocalTree({
+      '/tmp/site': ['page.cshtml', '.DS_Store', '.git/', 'css/'],
+      '/tmp/site/.git': ['HEAD'],
+      '/tmp/site/css': ['a.css', 'b.tmp']
+    })
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({ path: '', exists: false, isDirectory: false })
+    )
+
+    const result = await checkUploadConflicts(env, ['/tmp/site'], '/Files')
+
+    expect(result.data).toEqual({ totalFiles: 2, conflicts: [] })
+    expect(readdirMock.mock.calls.map(([p]) => join(p as string))).not.toContain(
+      join('/tmp/site/.git')
+    )
+  })
+
+  it('uploadFiles reports excluded junk, matches inside the picked folder, and keeps picked files', async () => {
+    mockLocalTree({
+      '/tmp/src/node_modules': ['lib.js', '.DS_Store']
+    })
+    const sessionsCreated: string[] = []
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = decodeURIComponent(String(input))
+      if (url.endsWith('/uploads') && init?.method === 'POST') {
+        sessionsCreated.push((JSON.parse(init.body as string) as { targetPath: string }).targetPath)
+        return jsonResponse({ id: 's1', chunkSize: 4, totalChunks: 1 })
+      }
+      if (url.includes('/chunks/')) return jsonResponse({})
+      if (url.includes('/finalize')) return jsonResponse({ targetPath: 'x' })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    const result = await uploadFiles(
+      env,
+      ['/tmp/src/node_modules', '/tmp/src/.DS_Store'],
+      '/Files',
+      true,
+      () => undefined
+    )
+
+    expect(result.data).toMatchObject({
+      uploaded: 2,
+      excludedNames: ['node_modules/.DS_Store']
+    })
+    expect(sessionsCreated.sort()).toEqual(['Files/.DS_Store', 'Files/node_modules/lib.js'])
+  })
+
+  it('uploadFiles with ifMatch replaces only that version and explains a newer one', async () => {
+    mockLocalFile(4)
+    let finalizeInit: RequestInit | undefined
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = decodeURIComponent(String(input))
+      if (url.endsWith('/uploads') && init?.method === 'POST') {
+        return jsonResponse({ id: 's1', chunkSize: 4, totalChunks: 1 })
+      }
+      if (url.includes('/chunks/')) return jsonResponse({})
+      if (url.includes('/finalize')) {
+        finalizeInit = init
+        return errorResponse(412, { code: 'PRECONDITION_FAILED', message: 'eTag mismatch' })
+      }
+      if (init?.method === 'DELETE') return jsonResponse({})
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    const result = await uploadFiles(
+      env,
+      ['/tmp/src/theme.json'],
+      '/Files',
+      true,
+      () => undefined,
+      undefined,
+      'etag-1'
+    )
+
+    expect(headersOf(finalizeInit)['If-Match']).toBe('etag-1')
+    // With If-Match the server replaces only that version, so overwrite stays off.
+    expect(JSON.parse(finalizeInit!.body as string)).toMatchObject({ overwrite: false })
+    expect(result.ok).toBe(false)
+    expect(result.data?.firstError).toContain(
+      '“theme.json” changed on the server since the preview'
+    )
   })
 
   it('uploadFiles skips existing files when overwrite is off and reports a summary', async () => {

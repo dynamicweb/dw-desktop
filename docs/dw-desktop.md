@@ -102,6 +102,8 @@ Authenticates with a DW10 backend user account directly. Use this as a fallback 
 
 If an upload would replace files that already exist on the server, DW Desktop asks first: **Replace existing**, **Upload missing only**, or cancel. When the environment is Production, the dialog says so.
 
+When you upload a folder, common junk inside it is left out: `.git`, `.svn`, `.hg` and `node_modules` folders, `.DS_Store`, `Thumbs.db`, `desktop.ini`, `*.tmp`, `~$*` (Office lock files), `*.swp`, and `*.dwpart` (unfinished DW Desktop downloads). Activity lists what was left out. A file you upload on its own is always sent, whatever its name.
+
 ### Compare
 
 When the two panes show matching folders — the local folder is inside a `Files` folder at the same relative path as the server folder — they are compared automatically. Files are marked **Changed**, **Not on server** or **Only on server**, and the filter pills above the panes show only those. Use the compare menu to compare any two folders, or to switch comparing off.
@@ -117,8 +119,11 @@ Sync makes one folder match another, with a preview before anything is written. 
 1. In **Browse**, open the two folders and click **Sync folder** — or open **Sync** and pick the folders there.
 2. Choose a direction: **Deploy to server** (this computer → server) or **Get from server** (server → this computer).
 3. Choose options:
-   - **Compare content, not just size and date** — slower, but exact (uses SHA-256 checksums).
+   - **Compare content, not just size and date** — slower, but exact (uses SHA-256 checksums). Without it, files are compared by size and date, and files the last sync uploaded or downloaded are recognised, so they aren't sent again.
    - **Delete files that aren't on the other side** — off by default. Deletes on your computer go to the recycle bin / trash.
+   - **Skip common junk files** — on by default. See [Excluding files](#excluding-files).
+   - **Skip files listed in .gitignore** — shown when the local folder is in a Git repository with a `.gitignore`. Off by default.
+   - **Exclude patterns** — your own rules for this sync.
 4. Click **Preview changes**. Every file that would be uploaded, downloaded, replaced or deleted is listed with the reason. Untick anything you don't want.
 5. Run it. Progress shows in **Activity**.
 
@@ -128,16 +133,45 @@ DW Desktop remembers what each sync wrote or verified. If a file changed on **bo
 
 A replace or delete is also guarded at the moment it runs: if the server file changed after you previewed, it is not overwritten, and the item reports that you should preview again.
 
+### Excluding files
+
+Excluded files are left alone on **both** sides: they are not transferred, and with *delete* turned on they are not deleted either. A folder that contains an excluded file is never deleted as a whole; the rest of its contents are deleted one by one. The preview lists what was excluded, on which side, and by which rule, under **Excluded**.
+
+Rules come from these places. When rules disagree, the later one in this list wins:
+
+1. **Common junk files** (unless you turn this off): `.git/`, `.svn/`, `.hg/`, `node_modules/`, `.DS_Store`, `Thumbs.db`, `desktop.ini`, `*.tmp`, `~$*`, `*.swp`, `*.dwpart`.
+2. **`.gitignore` files** (only when **Skip files listed in .gitignore** is on): those from the repository root down to the local folder, and those in its subfolders.
+3. **`.dwignore`** in the local folder, if there is one. It is useful for rules your whole team should share, and it is never uploaded itself.
+4. **Exclude patterns** for this sync.
+
+Patterns use `.gitignore` syntax and ignore case:
+
+| Pattern | Matches |
+| --- | --- |
+| `*.scss` | any `.scss` file, in any folder |
+| `drafts/` | any folder named `drafts`, and everything in it |
+| `/drafts/` | only the `drafts` folder at the top of the synced folder |
+| `Designs/**/*.map` | `.map` files anywhere below `Designs` |
+| `!keep.tmp` | brings back a file an earlier rule excluded |
+| `# note` | a comment |
+
+A file inside an excluded folder can't be brought back on its own: un-exclude the folder too (for example `!node_modules/`).
+
+> [!NOTE]
+> A `.gitignore` often lists build output, such as compiled CSS and JavaScript, that the site *does* need. Check the **Excluded** list before you deploy with **Skip files listed in .gitignore** on. Add a `!` pattern to bring something back.
+
+`System/Log` and `Cache.net` under `/Files` are never synced, the same as in the Dynamicweb CLI. That keeps a full **Get** from downloading logs and cache, and a full **Deploy** with *delete* from removing them. To sync them anyway, choose that folder itself as the server folder.
+
 ### Saved syncs
 
-Click **Save this sync** to keep the folders, direction and options. Saved syncs appear in the sidebar for the environment; click one to open it in Sync and preview again.
+Click **Save this sync** to keep the folders, direction, options and exclude rules. Saved syncs appear in the sidebar for the environment; click one to open it in Sync and preview again.
 
 ## Activity
 
 **Activity** lists every upload, download and sync, grouped by batch, with progress. A small progress pill at the bottom right shows running transfers while you work in other views; click it to open Activity.
 
 - **Cancel all** stops a running batch. Expand a batch to cancel a single file — the rest of the batch keeps going. A delete started from Browse is one request and can't be cancelled.
-- **Retry failed** runs the failed and cancelled items of a batch again.
+- **Retry failed** runs the failed and cancelled items of a batch again. A sync item keeps its safeguard: a server file is only replaced or deleted if it hasn't changed since the preview, otherwise the item fails again and asks you to preview the sync again.
 - **Clear finished** removes completed batches. Failed batches stay until you retry them.
 - Use the environment menu to show this environment only or all environments.
 - **Server requests** shows the raw requests to the server, for troubleshooting.

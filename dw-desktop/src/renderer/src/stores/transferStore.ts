@@ -211,13 +211,14 @@ export async function retryBatch(batchId: string): Promise<void> {
         [job.localPath],
         job.remotePath,
         job.overwrite ?? true,
-        job.id
+        job.id,
+        job.ifMatch
       )
     } else if (job.direction === 'download') {
       await runDownload({ ...job, status: 'queued' })
     } else {
       updateJob(job.id, { status: 'active' })
-      const result = await window.dw.files.delete(job.envName, job.remotePath)
+      const result = await window.dw.files.delete(job.envName, job.remotePath, job.ifMatch)
       updateJob(job.id, { status: result.ok ? 'done' : 'error', error: result.error })
     }
   }
@@ -259,7 +260,7 @@ export function initTransferListeners(): () => void {
   })
 
   const unsubDone = window.dw.on.filesDone(
-    ({ jobId, ok, error, cancelled, uploaded, skipped, skippedNames }) => {
+    ({ jobId, ok, error, cancelled, uploaded, skipped, skippedNames, excludedNames }) => {
       // An upload where the server wrote nothing and skipped existing files is
       // reported as 'skipped' — not the misleading 'done' it used to show.
       const status: TransferJob['status'] = cancelled
@@ -273,6 +274,7 @@ export function initTransferListeners(): () => void {
         status,
         error: cancelled ? undefined : error,
         skippedNames,
+        excludedNames: excludedNames?.length ? excludedNames : undefined,
         ...(status === 'done' ? { transferred: 1, total: 1 } : {})
       })
       const job = useTransferStore.getState().jobs.find((j) => j.id === jobId)

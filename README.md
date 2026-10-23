@@ -45,6 +45,9 @@ Get the latest version from the [Releases page](https://github.com/dynamicweb/dw
 - **Sync — deploy and get with a preview**  
   Pick a local and a server folder and a direction (**Deploy to server** or **Get from server**), then **Preview changes** before anything is written. Optionally compare file content (not just size and date) and delete files that only exist on the other side; deletes on your computer go to the recycle bin / trash.
 
+- **Exclude rules**  
+  Junk such as `.git`, `node_modules` and `.DS_Store` is never deployed. Add your own patterns per sync, share them in a `.dwignore` file, or use your `.gitignore`. Excluded files are left alone on both sides, so a sync with delete never removes them.
+
 - **Conflict detection**  
   DW Desktop remembers what each sync wrote. If a file changed on both sides since the last sync it is flagged as a conflict and you choose which version wins — nothing is silently overwritten.
 
