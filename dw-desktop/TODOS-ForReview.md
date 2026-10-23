@@ -72,33 +72,6 @@ the download and upload code is reused.
 
 ---
 
-### Sync by date re-transfers what was just synced
-
-**What:** Without *Compare content*, a Get straight after a Deploy lists every file
-as *Newer on the server* and downloads it again. The likely mirror image: a Deploy
-by date straight after a Get re-uploads everything.
-
-**Why:** The server dates an uploaded file by its upload time, not the local file's
-time, so the date comparison in `buildSyncPlan` sees the server copy as newer (and
-a downloaded file gets the download time locally). Contents are identical, so
-nothing is lost, but a full /Files folder is transferred again for nothing.
-
-**Pros:** Date-only syncs (the fast option for big folders) become trustworthy.
-
-**Cons:** Fixing the Deploy-after-Get direction needs the local file's time in the
-sync baseline (`transferState.ts`), a format change.
-
-**Context:** Found by the demo-e2e `resync-is-clean` scenario with local files
-dated a day back. A cheap fix for the Get direction: when the server eTag still
-matches the baseline, nothing on the server is new, so it isn't *Newer on the
-server*. Re-enable the date-only Get in that scenario once fixed.
-
-**Value:** Medium — wasted transfers and a confusing preview, no data loss.
-
-**Difficulty:** Low for Get; Low-Medium for Deploy (baseline gains a field).
-
----
-
 ## Medium priority — clear workflow value
 
 ### Deploy with backup and rollback

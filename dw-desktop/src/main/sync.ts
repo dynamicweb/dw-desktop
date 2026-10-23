@@ -19,7 +19,7 @@ import {
   type FileTransferEntry
 } from './dw-api'
 import { loadExclusions, type Exclusions } from './exclude'
-import { createTransferState, type TransferState } from './transferState'
+import { createTransferState, type BaselineEntry, type TransferState } from './transferState'
 import type {
   ExcludedEntry,
   IPCResult,
@@ -84,6 +84,27 @@ const MAX_PLANS = 10
 // Local and remote clocks and file systems disagree by a little; within this, a
 // same-size file counts as unchanged when content isn't compared.
 const MTIME_TOLERANCE_MS = 2000
+
+/**
+ * Whether the side a sync copies from still holds what the last sync left there. By
+ * date alone that can't be told: the server dates a file by when it was written
+ * there and a download is dated by when it landed here, so right after a sync every
+ * file looks newer on the side the app just wrote.
+ */
+function sourceUnchangedSinceSync(
+  push: boolean,
+  base: BaselineEntry | null,
+  local: LocalFile,
+  remote: FileTransferEntry
+): boolean {
+  if (!base) return false
+  if (!push) return !!remote.eTag && base.eTag === remote.eTag
+  return (
+    base.size === local.size &&
+    base.localMtimeMs !== undefined &&
+    Math.abs(base.localMtimeMs - local.mtimeMs) < 1
+  )
+}
 
 export async function hashFile(path: string): Promise<string> {
   const hash = createHash('sha256')
@@ -288,7 +309,7 @@ export async function buildSyncPlan(
         d.localSha = ls
         d.remoteSha = rs
         if (ls !== rs) reason = 'Content differs'
-      } else {
+      } else if (!sourceUnchangedSinceSync(push, state.getFile(apiPath), l, r)) {
         const delta = l.mtimeMs - Date.parse(r.modifiedUtc)
         if (push && delta > MTIME_TOLERANCE_MS) reason = 'Newer on this computer'
         if (!push && delta < -MTIME_TOLERANCE_MS) reason = 'Newer on the server'
@@ -490,7 +511,8 @@ export async function runSyncPlan(
         state.recordFile(apiPath, {
           eTag: completion.eTag,
           sha256: completion.sha256,
-          size: completion.size
+          size: completion.size,
+          localMtimeMs: d.local.mtimeMs
         })
       } else if (!push && d.remote) {
         const target = localPathFor(localRoot, it.path)
@@ -500,7 +522,8 @@ export async function runSyncPlan(
         state.recordFile(apiPath, {
           eTag: d.remote.eTag ?? '',
           sha256: await hashFile(target),
-          size: d.remote.size
+          size: d.remote.size,
+          localMtimeMs: (await stat(target)).mtimeMs
         })
       }
       finish(run.jobId, { ok: true })
@@ -527,13 +550,19 @@ export async function runSyncPlan(
     result.cancelled = !!signal?.aborted
     if (!result.cancelled) {
       // Files found equal when planning are verified in sync: they join the baseline.
+      // What was known about an unchanged server version is kept; the local time only
+      // moves when the content was checked equal, so a later edit still shows.
       for (const d of stored.unchanged) {
         if (!d.remote?.eTag) continue
-        const sha = d.localSha && d.localSha === d.remoteSha ? d.localSha : null
-        state.recordFile(joinApi(apiRoot, d.item.path), {
+        const apiPath = joinApi(apiRoot, d.item.path)
+        const verified = !!d.localSha && d.localSha === d.remoteSha
+        const known = state.getFile(apiPath)
+        const same = known?.eTag === d.remote.eTag ? known : null
+        state.recordFile(apiPath, {
           eTag: d.remote.eTag,
-          sha256: sha,
-          size: d.remote.size
+          sha256: verified ? (d.localSha ?? null) : (same?.sha256 ?? null),
+          size: d.remote.size,
+          localMtimeMs: verified ? d.local?.mtimeMs : same?.localMtimeMs
         })
       }
       state.markRootSynced(apiRoot)

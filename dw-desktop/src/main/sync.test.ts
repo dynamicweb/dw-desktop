@@ -328,6 +328,106 @@ describe('buildSyncPlan with exclude rules', () => {
   })
 })
 
+describe('sync by date after a sync', () => {
+  const dayAgo = new Date(Date.now() - 24 * 3600 * 1000)
+  // The server dates a file by when it was written there: now.
+  const serverNow = (path: string, size: number, eTag: string): object => ({
+    ...remote(path, size, eTag),
+    modifiedUtc: new Date().toISOString()
+  })
+
+  it('a Get skips a file the server has not changed since the last sync', async () => {
+    await writeFile(join(root, 'a.txt'), 'abcd')
+    await utimes(join(root, 'a.txt'), dayAgo, dayAgo)
+    collectManifestMock.mockResolvedValue([serverNow('a.txt', 4, 'e1')])
+    const state = memoryState()
+    state.recordFile('Templates/a.txt', { eTag: 'e1', sha256: 's', size: 4 })
+
+    const plan = (
+      await buildSyncPlan(env, request({ direction: 'pull', compareContent: false }), state)
+    ).data!
+
+    expect(plan.items).toEqual([])
+    expect(plan.unchanged).toBe(1)
+  })
+
+  it('a Get still takes a file the server changed since the last sync', async () => {
+    await writeFile(join(root, 'a.txt'), 'abcd')
+    await utimes(join(root, 'a.txt'), dayAgo, dayAgo)
+    collectManifestMock.mockResolvedValue([serverNow('a.txt', 4, 'e2')])
+    const state = memoryState()
+    state.recordFile('Templates/a.txt', { eTag: 'e1', sha256: 's', size: 4 })
+
+    const plan = (
+      await buildSyncPlan(env, request({ direction: 'pull', compareContent: false }), state)
+    ).data!
+
+    expect(plan.items[0]).toMatchObject({ action: 'replace', reason: 'Newer on the server' })
+  })
+
+  it('a Deploy skips a file left as the last sync wrote it, and takes one edited since', async () => {
+    await writeFile(join(root, 'kept.txt'), 'abcd')
+    await writeFile(join(root, 'edited.txt'), 'abcd')
+    const { stat } = await import('fs/promises')
+    const keptMtime = (await stat(join(root, 'kept.txt'))).mtimeMs
+    collectManifestMock.mockResolvedValue([
+      remote('kept.txt', 4, 'k1'),
+      remote('edited.txt', 4, 'd1')
+    ])
+    const state = memoryState()
+    state.recordFile('Templates/kept.txt', {
+      eTag: 'k1',
+      sha256: 's',
+      size: 4,
+      localMtimeMs: keptMtime
+    })
+    state.recordFile('Templates/edited.txt', { eTag: 'd1', sha256: 's', size: 4, localMtimeMs: 1 })
+
+    const plan = (await buildSyncPlan(env, request({ compareContent: false }), state)).data!
+
+    expect(plan.items.map((i) => [i.path, i.reason])).toEqual([
+      ['edited.txt', 'Newer on this computer']
+    ])
+  })
+
+  it('records the local time of what it wrote, and keeps what it knew about unchanged files', async () => {
+    await writeFile(join(root, 'up.txt'), 'new')
+    await writeFile(join(root, 'same.txt'), 'abcd')
+    await utimes(join(root, 'same.txt'), dayAgo, dayAgo)
+    collectManifestMock.mockResolvedValue([remote('same.txt', 4, 's1')])
+    const state = memoryState()
+    state.recordFile('Templates/same.txt', {
+      eTag: 's1',
+      sha256: 'known',
+      size: 4,
+      localMtimeMs: 7
+    })
+    const plan = (await buildSyncPlan(env, request({ compareContent: false }), state)).data!
+    uploadOneFileMock.mockResolvedValue({ targetPath: 'x', size: 3, sha256: 'h', eTag: 'u1' })
+
+    await runSyncPlan(
+      plan.id,
+      [{ jobId: 'j', path: 'up.txt' }],
+      { progress: vi.fn(), done: vi.fn() },
+      {
+        state,
+        trash: vi.fn()
+      }
+    )
+
+    const { stat } = await import('fs/promises')
+    expect(state.getFile('Templates/up.txt')).toMatchObject({
+      eTag: 'u1',
+      localMtimeMs: (await stat(join(root, 'up.txt'))).mtimeMs
+    })
+    // Accepted by date only: the known checksum and local time stay as they were.
+    expect(state.getFile('Templates/same.txt')).toMatchObject({
+      sha256: 'known',
+      localMtimeMs: 7
+    })
+  })
+})
+
 describe('runSyncPlan', () => {
   const events = { progress: vi.fn(), done: vi.fn() }
   const trash = vi.fn().mockResolvedValue(undefined)

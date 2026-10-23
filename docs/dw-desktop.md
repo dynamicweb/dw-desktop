@@ -119,7 +119,7 @@ Sync makes one folder match another, with a preview before anything is written. 
 1. In **Browse**, open the two folders and click **Sync folder** — or open **Sync** and pick the folders there.
 2. Choose a direction: **Deploy to server** (this computer → server) or **Get from server** (server → this computer).
 3. Choose options:
-   - **Compare content, not just size and date** — slower, but exact (uses SHA-256 checksums).
+   - **Compare content, not just size and date** — slower, but exact (uses SHA-256 checksums). Without it, files are compared by size and date, and files the last sync uploaded or downloaded are recognised, so they aren't sent again.
    - **Delete files that aren't on the other side** — off by default. Deletes on your computer go to the recycle bin / trash.
    - **Skip common junk files** — on by default. See [Excluding files](#excluding-files).
    - **Skip files listed in .gitignore** — shown when the local folder is in a Git repository with a `.gitignore`. Off by default.
