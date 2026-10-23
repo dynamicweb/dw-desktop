@@ -202,6 +202,15 @@ export class Session {
     }
   }
 
+  /** Polls `test` (sync or async) until it is true. */
+  async waitUntil(test, { timeout = 60_000, label = 'a condition' } = {}) {
+    const end = Date.now() + timeout
+    while (!(await test())) {
+      if (Date.now() > end) throw new Error(`Timed out after ${timeout / 1000}s waiting for ${label}`)
+      await this.page.waitForTimeout(250)
+    }
+  }
+
   // ── UI steps ─────────────────────────────────────────────────────────────
   click(name) {
     return this.quiet(() => this.driver.commands.click(...name.split(' ')))

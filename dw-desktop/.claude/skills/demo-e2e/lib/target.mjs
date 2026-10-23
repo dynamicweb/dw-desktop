@@ -3,9 +3,9 @@
 // environment's name; a throwaway profile holding the same environment entry
 // signs in with them, and nothing here ever handles a key.
 //
-// Only test hosts qualify: demo sites, dev01 sites and solutions running on this
-// computer. Anything else - a customer or production site - is refused, even when
-// named explicitly.
+// Only Development environments on test hosts qualify: demo sites, dev01 sites and
+// solutions running on this computer. Anything else - a customer site, or one marked
+// Staging or Production - is refused, even when named explicitly.
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -45,17 +45,22 @@ export function userDataDir() {
   return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'dw-desktop')
 }
 
+/** The app's rule: an environment without a kind is Development. */
+function kindOf(env) {
+  return env.kind ?? 'development'
+}
+
 /**
  * The test environment: `--env <name>`, else the one demo.local.json names, else
- * the only configured environment on a test host. It must be on a test host and
- * not marked Production.
+ * the only Development environment on a test host. It must be on a test host and
+ * of kind Development.
  */
 export function resolveTestEnv(requested) {
   const configPath = path.join(userDataDir(), 'config.json')
   if (!fs.existsSync(configPath))
     throw new SkipRun('DW Desktop has no configuration on this machine, so there is no test site to use.')
   const environments = JSON.parse(fs.readFileSync(configPath, 'utf8')).environments ?? []
-  const eligible = environments.filter((e) => isTestHost(e.host) && e.kind !== 'production')
+  const eligible = environments.filter((e) => isTestHost(e.host) && kindOf(e) === 'development')
   const list = eligible.map((e) => `${e.name} (${e.host})`).join(', ') || 'none'
 
   const name =
@@ -67,7 +72,7 @@ export function resolveTestEnv(requested) {
   } else {
     if (eligible.length === 0)
       throw new SkipRun(
-        'no test environment in DW Desktop (a *.dwdemo.dynamicweb.cloud, *.dev01.dynamicweb.dk or localhost site).'
+        'no test environment in DW Desktop (a Development environment on *.dwdemo.dynamicweb.cloud, *.dev01.dynamicweb.dk or localhost).'
       )
     if (eligible.length > 1)
       throw new SkipRun(
@@ -76,7 +81,8 @@ export function resolveTestEnv(requested) {
       )
     env = eligible[0]
   }
-  if (env.kind === 'production') throw new Error(`"${env.name}" is marked Production; it is never used for tests.`)
+  if (kindOf(env) !== 'development')
+    throw new Error(`"${env.name}" is marked ${env.kind}; tests only run on Development environments.`)
   if (!isTestHost(env.host))
     throw new Error(
       `"${env.name}" (${env.host}) is not a test host. Tests only run on *.dwdemo.dynamicweb.cloud, ` +

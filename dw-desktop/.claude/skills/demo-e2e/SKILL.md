@@ -1,6 +1,6 @@
 ---
 name: demo-e2e
-description: End-to-end tests of DW Desktop against a real Dynamicweb test site (the demo site, a *.dev01.dynamicweb.dk site or a solution on localhost) - deploy, get, delete, upload, cancel/retry, conflicts - driven through the built app, with every write confined to a per-run sandbox folder. Run it on your own, without asking, after changing code that affects what reaches the server (dw-api.ts, sync.ts, exclude.ts, transfers, upload/download, Activity retry or cancel). Not for purely visual changes - use run-dw-desktop for those.
+description: End-to-end tests of DW Desktop against a real Dynamicweb test site (a Development environment on the demo site, a *.dev01.dynamicweb.dk site or a solution on localhost) - deploy, get, delete, upload, cancel/retry, conflicts - driven through the built app, with every write confined to a per-run sandbox folder. Run it on your own, without asking, after changing code that affects what reaches the server (dw-api.ts, sync.ts, exclude.ts, transfers, upload/download, Activity retry or cancel). Not for purely visual changes - use run-dw-desktop for those.
 ---
 
 # Demo end-to-end tests
@@ -31,7 +31,8 @@ example a sync at the `/Files` root with delete, the only way to exercise the
 `System/Log` / `Cache.net` protection for real. Write a short plan (what it
 touches, what result proves the point, how the site gets back to normal), wait
 for the operator's yes, then run with `--allow-outside`. Never on production,
-never on a site that isn't a test host (both are refused anyway).
+never on a Staging or Production environment, never on a site that isn't a test host
+(all refused anyway).
 
 **No test site?** When this machine has no usable test environment (none
 configured, several and none chosen, credentials refused, site down) the runner
@@ -49,7 +50,7 @@ node .claude/skills/demo-e2e/runner.mjs list
 
 | Option | Does |
 |---|---|
-| `--env <name>` | DW Desktop environment to test on (default: `demo.local.json`, else the only one on a test host) |
+| `--env <name>` | DW Desktop environment to test on (default: `demo.local.json`, else the only Development one on a test host) |
 | `--keep` | leave the run folder on the server, to look into a failure |
 | `--allow-outside` | lift the run-folder check for this run - only after an approved plan |
 
@@ -76,7 +77,8 @@ with the stored credentials and no test code ever handles a key.
 
 - Only **test hosts** qualify: `*.dwdemo.dynamicweb.cloud`,
   `*.dev01.dynamicweb.dk`, `localhost` / `127.0.0.1` / `::1` / `*.localhost`
-  (any port). Environments marked Production are refused.
+  (any port), and only environments of kind **Development** (the default when
+  none is set). Staging and Production are refused, even when named.
 - Pick one with `--env <name>`, or set a default in `demo.local.json`
   (git-ignored, not secret): `{ "env": "abi.dwdemo" }`. With neither, the only
   configured test environment is used.
@@ -109,7 +111,10 @@ with the stored credentials and no test code ever handles a key.
 |---|---|
 | `deploy-excludes` | Deploy + delete with the junk list, `.gitignore`, `.dwignore` and a pattern: only real files reach the server, excluded server files survive, a folder holding an excluded file is emptied but kept |
 | `get-delete` | Get + delete: downloads, trashes local-only files, keeps a folder holding an excluded `.git` |
-| `conflict-race` | A server file edited between preview and run is not overwritten (If-Match), the item says why, the next preview lists a conflict |
+| `conflict-race` | A server file edited between preview and run is not overwritten (If-Match), the item says why, Retry failed keeps that guard, the next preview lists a conflict |
+| `resync-is-clean` | Right after a deploy, previewing again (by content, by date, and a Get by content) finds nothing to do |
+| `odd-names` | Names with spaces, %, #, +, &, quotes, brackets and non-ASCII deploy under the same name, read back and stay in sync |
+| `folder-download` | A Browse folder download keeps nested folders, an empty file and an empty folder |
 | `upload-folder-junk` | A Browse folder upload leaves junk out and Activity says what |
 | `cancel-retry` | Cancelling a 48 MB upload leaves nothing on the server; Retry failed completes it and the checksum matches |
 | `sandbox-guard` | Writes outside the run folder, other hosts and foreign upload sessions are refused before anything is sent |

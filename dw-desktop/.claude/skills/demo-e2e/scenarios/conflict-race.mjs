@@ -1,5 +1,6 @@
 // A server file that changes between preview and run is not overwritten (If-Match),
-// the item says why, and the next preview lists it as a conflict.
+// the item says why, Retry failed doesn't overwrite it either, and the next preview
+// lists it as a conflict.
 export default {
   name: 'conflict-race',
   description: 'Server file edited between preview and run is kept; next preview flags a conflict',
@@ -28,6 +29,18 @@ export default {
       "the server's edit was overwritten"
     )
     await t.ss('activity')
+
+    // Retry in Activity must keep the same guard, not force the upload through.
+    await t.drainEvents()
+    t.events.length = 0
+    await t.click('Retry failed')
+    const retried = await t.waitForEvent('files:done', () => true, { label: 'the retried item to finish' })
+    t.check(!retried.ok, 'Retry failed went through although the server file changed since the preview')
+    t.check(
+      (await t.readRemote('theme.json')) === '{"color":"edited on the server"}',
+      "Retry failed overwrote the server's edit"
+    )
+    await t.ss('retried')
 
     await t.openSavedSync('E2E conflict-race')
     await t.preview()
