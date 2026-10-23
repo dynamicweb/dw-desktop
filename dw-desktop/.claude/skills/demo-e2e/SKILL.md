@@ -112,7 +112,8 @@ with the stored credentials and no test code ever handles a key.
 | `deploy-excludes` | Deploy + delete with the junk list, `.gitignore`, `.dwignore` and a pattern: only real files reach the server, excluded server files survive, a folder holding an excluded file is emptied but kept |
 | `get-delete` | Get + delete: downloads, trashes local-only files, keeps a folder holding an excluded `.git` |
 | `conflict-race` | A server file edited between preview and run is not overwritten (If-Match), the item says why, Retry failed keeps that guard, the next preview lists a conflict |
-| `resync-is-clean` | Right after a deploy, previewing again (by content, by date, and a Get by content) finds nothing to do |
+| `resync-is-clean` | Right after a deploy, previewing again (deploy or get, by content or by date) finds nothing to do |
+| `resync-after-get` | The mirror image: right after a get, previewing again (deploy or get, by content or by date) finds nothing to do |
 | `odd-names` | Names with spaces, %, #, +, &, quotes, brackets and non-ASCII deploy under the same name, read back and stay in sync |
 | `folder-download` | A Browse folder download keeps nested folders, an empty file and an empty folder |
 | `upload-folder-junk` | A Browse folder upload leaves junk out and Activity says what |

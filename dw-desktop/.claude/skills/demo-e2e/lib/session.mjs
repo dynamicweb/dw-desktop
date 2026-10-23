@@ -225,10 +225,14 @@ export class Session {
   }
 
   // Saved syncs are listed in the sidebar while Sync is open.
+  // Matched by the exact name ("E2E deploy" must not open "E2E deploy by date"), and
+  // only done once Sync shows that sync, not the previous one.
   async openSavedSync(name) {
     await this.quiet(() => this.driver.commands.nav('Sync'))
-    await this.page.locator('aside button.nav-item', { hasText: name }).first().click({ timeout: 10_000 })
-    await this.page.waitForTimeout(500)
+    const exact = this.page.getByText(name, { exact: true })
+    await this.page.locator('aside button.nav-item').filter({ has: exact }).click({ timeout: 10_000 })
+    await this.page.getByRole('heading', { name: `Sync ${name}`, exact: true }).waitFor({ timeout: 10_000 })
+    await this.page.getByRole('button', { name: 'Preview changes', exact: true }).waitFor({ timeout: 10_000 })
   }
 
   /** Previews the sync on screen; returns the run button's label (null when nothing to do). */

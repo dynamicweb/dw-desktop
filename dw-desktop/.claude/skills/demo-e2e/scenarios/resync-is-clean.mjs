@@ -1,19 +1,18 @@
 // Right after a deploy, previewing again finds nothing to do: the sync baseline,
 // the server's checksums and its timestamps agree with what was just sent.
-// (A Get by date alone is left out: the server dates uploads by upload time, so it
-// would list every file as newer on the server. Tracked in TODOS-ForReview.md.)
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 const SYNCS = [
   { name: 'E2E resync deploy', direction: 'push', compareContent: true },
   { name: 'E2E resync deploy by date', direction: 'push', compareContent: false },
-  { name: 'E2E resync get', direction: 'pull', compareContent: true }
+  { name: 'E2E resync get', direction: 'pull', compareContent: true },
+  { name: 'E2E resync get by date', direction: 'pull', compareContent: false }
 ]
 
 export default {
   name: 'resync-is-clean',
-  description: 'Preview again after a deploy (content, date, get) finds nothing to do',
+  description: 'Previewing again right after a deploy (deploy or get, by content or date) finds nothing to do',
   launch: { syncs: SYNCS },
 
   async run(t) {
