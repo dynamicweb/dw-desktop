@@ -93,6 +93,19 @@ Direct invocation without the app: main-process logic (`src/main/dw-api.ts`,
 pattern in `src/main/sync.test.ts` (real temp folder for the local side, an
 in-memory `TransferState`) to exercise a function directly.
 
+For transfers against a real server (deploy, get, delete, upload, cancel/retry)
+use the **demo-e2e** skill (`../demo-e2e/SKILL.md`): scripted scenarios on a test
+site, writes confined to a sandbox folder.
+
+## Reused by demo-e2e
+
+`driver.mjs` exports `createDriver({ shotDir, onLaunch })` (the same commands,
+plus the Playwright `app` and `page`) and `runRepl()`; it only starts the REPL
+when run directly. demo-e2e imports it and uses `launch` (with `onLaunch` to
+install its guard before the window loads), `nav`, `click`, `ss`, `quit`, and
+resolves `playwright-core` from this folder's `node_modules`. After changing the
+driver, run `node .claude/skills/demo-e2e/runner.mjs sandbox-guard` as a smoke test.
+
 ## Gotchas
 
 - **`ELECTRON_RUN_AS_NODE=1` is set in VS Code terminals** (and in Claude Code
