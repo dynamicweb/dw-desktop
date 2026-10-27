@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { parseHost } from '../../../shared/host'
 import { useEnvStore } from '../stores/envStore'
 import { ENV_KINDS, envKindLabel, type EnvKind, type StoredEnv } from '../../../shared/types'
 
@@ -83,26 +84,15 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
     return () => document.removeEventListener('keydown', handleEsc)
   }, [onDone])
 
-  function detectProtocol(raw: string): 'http' | 'https' {
-    if (raw.startsWith('http://')) return 'http'
-    return 'https'
-  }
-
-  function cleanHost(raw: string): string {
-    const withoutProtocol = raw.replace(/^https?:\/\//, '')
-    return withoutProtocol.split('/')[0].trim()
-  }
-
   function hostIsValid(raw: string): boolean {
-    return cleanHost(raw).length > 0
+    return parseHost(raw).host.length > 0
   }
 
   function buildEnv(): StoredEnv {
     const trimmedStart = step1.localStartPath.trim()
     return {
       name: step1.name,
-      host: cleanHost(step1.host),
-      protocol: detectProtocol(step1.host),
+      ...parseHost(step1.host),
       authType: step2.authTab === 'password' ? 'password' : step2.authTab,
       kind: step1.kind,
       ...(trimmedStart ? { localStartPath: trimmedStart } : {})
@@ -329,14 +319,14 @@ export default function AddEnvModal({ onDone }: AddEnvModalProps): React.JSX.Ele
                       flexShrink: 0
                     }}
                   >
-                    {detectProtocol(step1.host).toUpperCase()}
+                    {parseHost(step1.host).protocol.toUpperCase()}
                   </span>
                 </div>
                 {step1.host && (
                   <p style={hintStyle}>
                     Will connect to:{' '}
                     <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                      {detectProtocol(step1.host)}://{cleanHost(step1.host)}
+                      {parseHost(step1.host).protocol}://{parseHost(step1.host).host}
                     </span>
                   </p>
                 )}

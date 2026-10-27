@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { parseHost } from '../../../shared/host'
 import { useEnvStore } from '../stores/envStore'
 import {
   ENV_KINDS,
@@ -67,18 +68,8 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
     }
   }, [env.name])
 
-  function detectProtocol(raw: string): 'http' | 'https' {
-    if (raw.startsWith('http://')) return 'http'
-    return 'https'
-  }
-
-  function cleanHost(raw: string): string {
-    const withoutProtocol = raw.replace(/^https?:\/\//, '')
-    return withoutProtocol.split('/')[0].trim()
-  }
-
   function hostIsValid(raw: string): boolean {
-    return cleanHost(raw).length > 0
+    return parseHost(raw).host.length > 0
   }
 
   const authTypeChanged = authTab !== env.authType
@@ -100,8 +91,7 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
     const trimmedDisplay = displayName.trim()
     return {
       ...env,
-      host: cleanHost(host),
-      protocol: detectProtocol(host),
+      ...parseHost(host),
       authType: authTab,
       kind,
       displayName: trimmedDisplay && trimmedDisplay !== env.name ? trimmedDisplay : undefined,
@@ -335,7 +325,7 @@ export default function EditEnvModal({ env, onDone }: EditEnvModalProps): React.
                   flexShrink: 0
                 }}
               >
-                {detectProtocol(host).toUpperCase()}
+                {parseHost(host).protocol.toUpperCase()}
               </span>
             </div>
           </div>
