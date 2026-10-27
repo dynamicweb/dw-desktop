@@ -1,21 +1,62 @@
 import { mkdir } from 'fs/promises'
 import { ipcMain, shell } from 'electron'
-import { releaseJobs, trackJobs } from '../cancellation'
+import { cancelJobs, releaseJobs, trackJobs } from '../cancellation'
 import { hasGitignore } from '../exclude'
 import { buildSyncPlan, runSyncPlan } from '../sync'
 import { errorToResult, postJson, toApiPath } from '../dw-api'
 import { getEnvOrError } from './files'
-import type { IPCResult, SyncPlan, SyncRequest, SyncRunItem } from '../../shared/types'
+import type {
+  IPCResult,
+  SyncPlan,
+  SyncPlanProgress,
+  SyncRequest,
+  SyncRunItem
+} from '../../shared/types'
+
+const PROGRESS_INTERVAL_MS = 150
 
 export function registerSyncHandlers(): void {
+  // Progress goes out on sync:planProgress, at most every PROGRESS_INTERVAL_MS within a
+  // phase; the last update held back is sent when the phase changes or the preview
+  // ends, so every step shows its final count. sync:cancelPlan stops the preview.
   ipcMain.handle(
     'sync:plan',
-    async (_event, request: SyncRequest): Promise<IPCResult<SyncPlan>> => {
+    async (
+      event,
+      { request, previewId }: { request: SyncRequest; previewId: string }
+    ): Promise<IPCResult<SyncPlan>> => {
       const result = getEnvOrError(request.envName)
       if ('ok' in result) return result as IPCResult<SyncPlan>
-      return buildSyncPlan(result.env, request)
+      const controller = trackJobs([previewId])
+      let held: SyncPlanProgress | null = null
+      let lastPhase = ''
+      let lastSent = 0
+      const send = (p: SyncPlanProgress): void => {
+        held = null
+        lastPhase = p.phase
+        lastSent = Date.now()
+        if (!event.sender.isDestroyed()) event.sender.send('sync:planProgress', p)
+      }
+      try {
+        return await buildSyncPlan(result.env, request, undefined, {
+          signal: controller.signal,
+          progress: (update) => {
+            const p = { previewId, ...update }
+            if (p.phase !== lastPhase) {
+              if (held) send(held)
+              send(p)
+            } else if (Date.now() - lastSent < PROGRESS_INTERVAL_MS) held = p
+            else send(p)
+          }
+        })
+      } finally {
+        if (held) send(held)
+        releaseJobs([previewId])
+      }
     }
   )
+
+  ipcMain.on('sync:cancelPlan', (_event, previewId: string) => cancelJobs([previewId]))
 
   // Retry of a sync folder item: create that one folder, like the run did (the server
   // endpoint is idempotent; a local folder is made with its parents).
@@ -23,7 +64,11 @@ export function registerSyncHandlers(): void {
     'sync:makeDirectory',
     async (
       _event,
-      { envName, remotePath, localPath }: { envName: string; remotePath?: string; localPath?: string }
+      {
+        envName,
+        remotePath,
+        localPath
+      }: { envName: string; remotePath?: string; localPath?: string }
     ): Promise<IPCResult> => {
       if (localPath) {
         try {

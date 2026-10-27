@@ -222,6 +222,77 @@ describe('buildSyncPlan', () => {
   })
 })
 
+describe('buildSyncPlan progress, errors and cancelling', () => {
+  it('leaves a file that can’t be compared out of the plan, with the reason', async () => {
+    await writeFile(join(root, 'a.txt'), 'aaaa')
+    await writeFile(join(root, 'b.txt'), 'bbbb')
+    const bSha = await hashFile(join(root, 'b.txt'))
+    collectManifestMock.mockResolvedValue([remote('a.txt', 4, 'ea'), remote('b.txt', 4, 'eb')])
+    getJsonMock.mockImplementation(async (_env, _route, query: { path: string }) => {
+      if (query.path.endsWith('a.txt'))
+        throw new FileTransferApiError(500, { code: 'IO_ERROR', message: 'Disk busy' }, '')
+      return { value: bSha, eTag: 'eb' }
+    })
+
+    const result = await buildSyncPlan(env, request(), memoryState())
+
+    expect(result.ok).toBe(true)
+    expect(result.data!.items).toEqual([
+      expect.objectContaining({
+        path: 'a.txt',
+        action: 'skip',
+        include: false,
+        reason: 'Couldn’t compare',
+        error: 'Disk busy'
+      })
+    ])
+    expect(result.data!.unchanged).toBe(1)
+  })
+
+  it('stops the preview when the server can’t be reached', async () => {
+    await writeFile(join(root, 'a.txt'), 'aaaa')
+    collectManifestMock.mockResolvedValue([remote('a.txt', 4, 'ea')])
+    getJsonMock.mockRejectedValue(new TypeError('fetch failed'))
+
+    const result = await buildSyncPlan(env, request(), memoryState())
+
+    expect(result.ok).toBe(false)
+  })
+
+  it('reports each phase while it runs', async () => {
+    await writeFile(join(root, 'a.txt'), 'aaaa')
+    const sha = await hashFile(join(root, 'a.txt'))
+    collectManifestMock.mockImplementation(async (_env, _path, _signal, onPage) => {
+      onPage?.(1)
+      return [remote('a.txt', 4, 'ea')]
+    })
+    getJsonMock.mockResolvedValue({ value: sha, eTag: 'ea' })
+    const progress = vi.fn()
+
+    await buildSyncPlan(env, request(), memoryState(), { progress })
+
+    const phases = progress.mock.calls.map(([p]) => p.phase)
+    expect([...new Set(phases)]).toEqual(['local', 'remote', 'compare'])
+    expect(progress).toHaveBeenLastCalledWith({ phase: 'compare', done: 1, total: 1, failed: 0 })
+  })
+
+  it('is cancelled by its signal', async () => {
+    await writeFile(join(root, 'a.txt'), 'aaaa')
+    const controller = new AbortController()
+    collectManifestMock.mockImplementation(async () => {
+      controller.abort()
+      return [remote('a.txt', 4, 'ea')]
+    })
+
+    const result = await buildSyncPlan(env, request(), memoryState(), {
+      signal: controller.signal
+    })
+
+    expect(result).toEqual({ ok: false, error: 'Cancelled.' })
+    expect(getJsonMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('buildSyncPlan with exclude rules', () => {
   function paths(items: { path: string; action: string }[]): Record<string, string> {
     return Object.fromEntries(items.map((i) => [i.path, i.action]))

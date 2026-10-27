@@ -154,6 +154,24 @@ export interface SyncItem {
   include: boolean
   /** Remote eTag seen when planning; guards replaces and deletes (If-Match). */
   remoteETag?: string | null
+  /** Why the file couldn't be compared. Such an item is a skip: nothing is done with it. */
+  error?: string
+}
+
+/** What a running preview is doing; sent on sync:planProgress while it runs. */
+export interface SyncPlanProgress {
+  /** The id the preview was started with. */
+  previewId: string
+  /** Listing this computer, listing the server, comparing files, checking for conflicts. */
+  phase: 'local' | 'remote' | 'compare' | 'conflicts'
+  /** Entries listed, or files compared / checked, so far. */
+  done: number
+  /** Files to compare / check; unknown while listing. */
+  total?: number
+  /** The path last started on. */
+  current?: string
+  /** Files that couldn't be compared so far. */
+  failed: number
 }
 
 export interface SyncRequest {

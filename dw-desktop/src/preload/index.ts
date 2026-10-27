@@ -8,6 +8,7 @@ import type {
   SavedSync,
   StoredEnv,
   SyncPlan,
+  SyncPlanProgress,
   SyncRequest,
   SyncRunItem,
   SyncRunResult,
@@ -104,8 +105,9 @@ const dw = {
       ipcRenderer.invoke('files:createDirectory', { envName, parentPath, name })
   },
   sync: {
-    plan: (request: SyncRequest): Promise<IPCResult<SyncPlan>> =>
-      ipcRenderer.invoke('sync:plan', request),
+    plan: (request: SyncRequest, previewId: string): Promise<IPCResult<SyncPlan>> =>
+      ipcRenderer.invoke('sync:plan', { request, previewId }),
+    cancelPlan: (previewId: string): void => ipcRenderer.send('sync:cancelPlan', previewId),
     run: (planId: string, items: SyncRunItem[]): void =>
       ipcRenderer.send('sync:run', { planId, items }),
     inspectLocal: (localPath: string): Promise<IPCResult<{ gitignore: boolean }>> =>
@@ -145,6 +147,12 @@ const dw = {
         cb(payload)
       ipcRenderer.on('sync:finished', listener)
       return () => ipcRenderer.removeListener('sync:finished', listener)
+    },
+    syncPlanProgress: (cb: (payload: SyncPlanProgress) => void): (() => void) => {
+      const listener = (_: Electron.IpcRendererEvent, payload: SyncPlanProgress): void =>
+        cb(payload)
+      ipcRenderer.on('sync:planProgress', listener)
+      return () => ipcRenderer.removeListener('sync:planProgress', listener)
     },
     debugEntry: (cb: (entry: unknown) => void): (() => void) => {
       const listener = (_: Electron.IpcRendererEvent, entry: unknown): void => cb(entry)

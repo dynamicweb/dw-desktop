@@ -63,7 +63,8 @@ import {
   renameRemote,
   createRemoteDirectory,
   uploadFiles,
-  checkUploadConflicts
+  checkUploadConflicts,
+  TIMED_OUT
 } from './dw-api'
 import type { StoredEnv } from '../shared/types'
 
@@ -603,6 +604,14 @@ describe('dw-api', () => {
     const result = await createRemoteDirectory(env, '/Images', 'Banners')
     expect(result.ok).toBe(false)
     expect(result.error).toContain('already exists')
+  })
+
+  it('gives up on a JSON request the server doesn’t answer, without retrying', async () => {
+    vi.mocked(fetch).mockRejectedValue(new DOMException('timed out', 'TimeoutError'))
+    const result = await createRemoteDirectory(env, '/', 'Exports')
+    expect(result).toEqual({ ok: false, error: TIMED_OUT })
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(vi.mocked(fetch).mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal)
   })
 
   it('renameRemote moves within the same parent directory', async () => {

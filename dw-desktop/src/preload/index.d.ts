@@ -7,6 +7,7 @@ import type {
   StoredEnv,
   SavedSync,
   SyncPlan,
+  SyncPlanProgress,
   SyncRequest,
   SyncRunItem,
   SyncRunResult,
@@ -84,7 +85,9 @@ export interface DWDesktopAPI {
     createDirectory(envName: string, parentPath: string, name: string): Promise<IPCResult>
   }
   sync: {
-    plan(request: SyncRequest): Promise<IPCResult<SyncPlan>>
+    /** `previewId` names the preview for its progress events and for cancelPlan. */
+    plan(request: SyncRequest, previewId: string): Promise<IPCResult<SyncPlan>>
+    cancelPlan(previewId: string): void
     run(planId: string, items: SyncRunItem[]): void
     /** Whether a .gitignore applies to the local folder, so the option is worth offering. */
     inspectLocal(localPath: string): Promise<IPCResult<{ gitignore: boolean }>>
@@ -111,6 +114,7 @@ export interface DWDesktopAPI {
     filesProgress(cb: (payload: ProgressPayload) => void): () => void
     filesDone(cb: (payload: DonePayload) => void): () => void
     syncFinished(cb: (payload: SyncFinishedPayload) => void): () => void
+    syncPlanProgress(cb: (payload: SyncPlanProgress) => void): () => void
     debugEntry(cb: (entry: DebugEntry) => void): () => void
     updaterAvailable(cb: (info: { version: string }) => void): () => void
     updaterDownloaded(cb: (info: { version: string }) => void): () => void

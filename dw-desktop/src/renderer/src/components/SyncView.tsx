@@ -8,7 +8,9 @@ import {
   type SyncAction,
   type SyncDirection,
   type SyncItem,
+  type IPCResult,
   type SyncPlan,
+  type SyncPlanProgress,
   type TransferJob
 } from '../../../shared/types'
 import { DEFAULT_EXCLUDES, countPatterns, patternLines } from '../../../shared/exclude'
@@ -24,6 +26,7 @@ import {
   AlertIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
+  CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   FolderIcon
@@ -161,6 +164,188 @@ function ExcludedList({
   )
 }
 
+type PlanPhase = SyncPlanProgress['phase']
+
+const PHASES: { phase: PlanPhase; label: string }[] = [
+  { phase: 'local', label: 'Listing this computer' },
+  { phase: 'remote', label: 'Listing the server' },
+  { phase: 'compare', label: 'Comparing files on both sides' },
+  { phase: 'conflicts', label: 'Checking for changes since the last sync' }
+]
+
+// After this long comparing content, suggest the quicker comparison by size and date.
+const SLOW_PREVIEW_S = 20
+
+function formatElapsed(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+/**
+ * What a running preview is doing, step by step, and where it stopped if it failed.
+ * The conflict check only happens for a folder synced before, so it is shown once reached.
+ */
+function PreviewProgress({
+  steps,
+  latest,
+  elapsed,
+  running,
+  error,
+  compareContent
+}: {
+  steps: Partial<Record<PlanPhase, SyncPlanProgress>>
+  latest: SyncPlanProgress | null
+  elapsed: number
+  running: boolean
+  error: string | null
+  compareContent: boolean
+}): React.JSX.Element {
+  const at = latest ? PHASES.findIndex((p) => p.phase === latest.phase) : -1
+  const shown = PHASES.filter((p) => p.phase !== 'conflicts' || steps.conflicts)
+  const slow = running && compareContent && latest?.phase === 'compare' && elapsed >= SLOW_PREVIEW_S
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--r-lg)',
+        padding: '12px 14px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        fontSize: 13
+      }}
+    >
+      {shown.map(({ phase, label }, i) => {
+        const p = steps[phase]
+        const state =
+          i < at ? 'done' : i === at ? (running ? 'active' : error ? 'failed' : 'done') : 'pending'
+        const counted = phase === 'compare' || phase === 'conflicts'
+        let count = ''
+        if (!p || (state === 'failed' && p.done === 0)) count = ''
+        else if (counted) count = `${p.done.toLocaleString()} of ${(p.total ?? 0).toLocaleString()}`
+        else count = `${p.done.toLocaleString()} ${p.done === 1 ? 'item' : 'items'}`
+        return (
+          <div key={phase} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span
+                style={{
+                  width: 16,
+                  display: 'flex',
+                  justifyContent: 'center',
+                  color:
+                    state === 'failed'
+                      ? 'var(--danger)'
+                      : state === 'done'
+                        ? 'var(--success)'
+                        : 'var(--text-subtle)'
+                }}
+              >
+                {state === 'done' ? (
+                  <CheckIcon size={14} />
+                ) : state === 'failed' ? (
+                  <AlertIcon size={14} />
+                ) : (
+                  <span
+                    className={state === 'active' ? 'transfer-bar-active' : undefined}
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 'var(--r-full)',
+                      background: state === 'active' ? 'var(--accent)' : 'var(--border)'
+                    }}
+                  />
+                )}
+              </span>
+              <span
+                style={{
+                  flex: 1,
+                  color: state === 'pending' ? 'var(--text-subtle)' : 'var(--text)',
+                  fontWeight: state === 'active' ? 500 : 400
+                }}
+              >
+                {label}
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{count}</span>
+            </div>
+            {state === 'active' && counted && !!p?.total && (
+              <span
+                style={{
+                  marginLeft: 26,
+                  height: 4,
+                  borderRadius: 'var(--r-full)',
+                  background: 'var(--border)',
+                  overflow: 'hidden'
+                }}
+              >
+                <span
+                  className="transfer-bar-active"
+                  style={{
+                    display: 'block',
+                    width: `${Math.round((p.done / p.total) * 100)}%`,
+                    height: '100%',
+                    background: 'var(--accent)'
+                  }}
+                />
+              </span>
+            )}
+            {state !== 'done' && state !== 'pending' && p?.current && (
+              <span
+                title={p.current}
+                style={{
+                  marginLeft: 26,
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 12,
+                  color: 'var(--text-muted)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {p.current}
+              </span>
+            )}
+          </div>
+        )
+      })}
+
+      {latest && latest.failed > 0 && (
+        <span style={{ fontSize: 12, color: 'var(--chip-changed-fg)' }}>
+          {latest.failed} {latest.failed === 1 ? 'file' : 'files'} couldn’t be compared so far. They
+          will be listed in the preview and left out of the sync.
+        </span>
+      )}
+      {slow && (
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+          Comparing content reads every file that has the same size on both sides. For a quicker
+          preview by size and date, untick “Compare content”.
+        </span>
+      )}
+      {error && (
+        <div
+          role="alert"
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 10,
+            padding: '10px 12px',
+            borderRadius: 10,
+            background: 'var(--notice-danger-bg)',
+            color: 'var(--notice-danger-fg)',
+            lineHeight: 1.45
+          }}
+        >
+          <AlertIcon style={{ marginTop: 2, flexShrink: 0 }} />
+          <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{error}</span>
+        </div>
+      )}
+      {(running || latest) && (
+        <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>
+          {running ? 'Running for' : 'Stopped after'} {formatElapsed(elapsed)}
+        </span>
+      )}
+    </div>
+  )
+}
+
 export default function SyncView(): React.JSX.Element {
   const activeEnv = useEnvStore((s) => s.activeEnv)
   const browseLocal = useFileStore((s) => s.localPath)
@@ -185,6 +370,9 @@ export default function SyncView(): React.JSX.Element {
   const [plan, setPlan] = useState<SyncPlan | null>(null)
   const [planning, setPlanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [progress, setProgress] = useState<SyncPlanProgress | null>(null)
+  const [steps, setSteps] = useState<Partial<Record<PlanPhase, SyncPlanProgress>>>({})
+  const [elapsed, setElapsed] = useState(0)
   const [include, setInclude] = useState<Map<string, boolean>>(new Map())
   const [resolutions, setResolutions] = useState<Map<string, Resolution>>(new Map())
   const [editingRemote, setEditingRemote] = useState(false)
@@ -192,6 +380,9 @@ export default function SyncView(): React.JSX.Element {
   // Bumped whenever the inputs change, so a preview that was still running when they
   // did is thrown away instead of bringing back a plan for the old options.
   const revision = useRef(0)
+  // The preview running in the main process, if any; stopped there, not just ignored here.
+  const previewing = useRef<string | null>(null)
+  const previewStarted = useRef(0)
 
   // Prefill from a draft (Browse's "Sync folder" or a saved sync), else Browse's folders.
   useEffect(() => {
@@ -207,11 +398,42 @@ export default function SyncView(): React.JSX.Element {
     setShowPatterns((d?.exclude ?? []).length > 0)
     setSavedId(d?.savedId)
     setName(d?.name ?? '')
+    if (previewing.current) window.dw.sync.cancelPlan(previewing.current)
+    previewing.current = null
     revision.current++
     setPlan(null)
     setPlanning(false)
     setError(null)
+    setProgress(null)
+    setSteps({})
   }, [syncDraft, activeEnv?.name])
+
+  useEffect(
+    () =>
+      window.dw.on.syncPlanProgress((p) => {
+        if (p.previewId !== previewing.current) return
+        setProgress(p)
+        setSteps((s) => ({ ...s, [p.phase]: p }))
+      }),
+    []
+  )
+
+  // Leaving the Sync screen stops a preview that is still running.
+  useEffect(
+    () => () => {
+      if (previewing.current) window.dw.sync.cancelPlan(previewing.current)
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (!planning) return
+    const timer = setInterval(
+      () => setElapsed(Math.floor((Date.now() - previewStarted.current) / 1000)),
+      1000
+    )
+    return () => clearInterval(timer)
+  }, [planning])
 
   // The .gitignore option is only offered where one applies (or it is already on).
   useEffect(() => {
@@ -224,12 +446,17 @@ export default function SyncView(): React.JSX.Element {
     }
   }, [localPath])
 
-  // Any change to what would be compared invalidates the preview.
+  // Any change to what would be compared invalidates the preview, and stops one that
+  // is still running.
   function invalidate(): void {
+    if (previewing.current) window.dw.sync.cancelPlan(previewing.current)
+    previewing.current = null
     revision.current++
     setPlan(null)
     setPlanning(false)
     setError(null)
+    setProgress(null)
+    setSteps({})
   }
 
   const push = direction === 'push'
@@ -241,21 +468,37 @@ export default function SyncView(): React.JSX.Element {
   async function preview(): Promise<void> {
     if (!activeEnv || !localPath) return
     const started = ++revision.current
+    const previewId = nanoid()
+    previewing.current = previewId
+    previewStarted.current = Date.now()
+    setElapsed(0)
+    setProgress(null)
+    setSteps({})
     setPlanning(true)
     setError(null)
-    const result = await window.dw.sync.plan({
-      envName: activeEnv.name,
-      localPath,
-      remotePath,
-      direction,
-      compareContent,
-      deleteExtra,
-      useDefaultExcludes,
-      useGitignore,
-      exclude
-    })
+    let result: IPCResult<SyncPlan>
+    try {
+      result = await window.dw.sync.plan(
+        {
+          envName: activeEnv.name,
+          localPath,
+          remotePath,
+          direction,
+          compareContent,
+          deleteExtra,
+          useDefaultExcludes,
+          useGitignore,
+          exclude
+        },
+        previewId
+      )
+    } catch (err) {
+      result = { ok: false, error: (err as Error).message }
+    }
+    if (previewing.current === previewId) previewing.current = null
     if (started !== revision.current) return
     setPlanning(false)
+    setElapsed(Math.floor((Date.now() - previewStarted.current) / 1000))
     if (!result.ok || !result.data) {
       setError(result.error ?? 'Couldn’t compare the folders.')
       setPlan(null)
@@ -281,6 +524,7 @@ export default function SyncView(): React.JSX.Element {
   }, [plan])
 
   const selected = (plan?.items ?? []).filter((i) => include.get(i.path))
+  const uncompared = (plan?.items ?? []).filter((i) => i.error).length
   const unresolved = (plan?.items ?? []).filter(
     (i) => i.action === 'conflict' && !resolutions.get(i.path)
   )
@@ -666,15 +910,30 @@ export default function SyncView(): React.JSX.Element {
                 disabled={!localPath || planning}
                 onClick={() => void preview()}
               >
-                {planning ? 'Comparing…' : 'Preview changes'}
+                {planning ? 'Comparing…' : error ? 'Try again' : 'Preview changes'}
               </button>
-              {error && <span style={{ fontSize: 13, color: 'var(--danger)' }}>{error}</span>}
+              {planning && (
+                <button type="button" className="btn btn-ghost" onClick={invalidate}>
+                  Cancel
+                </button>
+              )}
               {!error && !planning && (
                 <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                   Nothing is transferred until you review the list and confirm.
                 </span>
               )}
             </div>
+          )}
+
+          {!plan && (planning || error) && (
+            <PreviewProgress
+              steps={steps}
+              latest={progress}
+              elapsed={elapsed}
+              running={planning}
+              error={error}
+              compareContent={compareContent}
+            />
           )}
 
           {plan && (
@@ -777,6 +1036,29 @@ export default function SyncView(): React.JSX.Element {
                   </span>
                 )}
               </div>
+
+              {uncompared > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 10,
+                    padding: '10px 14px',
+                    borderRadius: 14,
+                    background: 'var(--chip-changed-bg)',
+                    color: 'var(--chip-changed-fg)',
+                    fontSize: 13,
+                    lineHeight: 1.45
+                  }}
+                >
+                  <AlertIcon style={{ marginTop: 2, flexShrink: 0 }} />
+                  <span>
+                    {uncompared} {uncompared === 1 ? 'file' : 'files'} couldn’t be compared, so{' '}
+                    {uncompared === 1 ? 'it is' : 'they are'} left out of this sync. The reason is
+                    shown next to each; preview again to retry.
+                  </span>
+                </div>
+              )}
 
               {plan.items.length === 0 ? (
                 <div
@@ -902,6 +1184,20 @@ export default function SyncView(): React.JSX.Element {
                           }}
                         >
                           {item.reason}
+                          {item.error && (
+                            <span
+                              title={item.error}
+                              style={{
+                                width: '100%',
+                                color: 'var(--danger)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              {item.error}
+                            </span>
+                          )}
                           {item.action === 'conflict' && (
                             <span style={{ display: 'flex', gap: 4 }}>
                               {(['local', 'remote'] as Resolution[]).map((r) => (

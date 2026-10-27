@@ -109,8 +109,23 @@ interface RequestOptions {
 
 export const CANCELLED = 'Cancelled.'
 
+// A JSON request (listing, checksum, mutation) that gets no answer within this is
+// given up rather than left hanging. Transfers aren't timed: a big chunk on a slow
+// line legitimately takes longer.
+export const REQUEST_TIMEOUT_MS = 60_000
+export const TIMED_OUT = `The server didn’t answer within ${REQUEST_TIMEOUT_MS / 1000} seconds.`
+
 export function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === 'AbortError'
+}
+
+export function isTimeoutError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'TimeoutError'
+}
+
+function withTimeout(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  return signal ? AbortSignal.any([signal, timeout]) : timeout
 }
 
 // Thin wrapper around fetch for the FileTransfer endpoints: attaches auth, logs to
@@ -155,7 +170,7 @@ export function getJson<T>(
 ): Promise<T> {
   return withRetry(() =>
     apiFetchJson<T>(env, `${apiBase(env)}/${route}?${new URLSearchParams(query).toString()}`, {
-      signal
+      signal: withTimeout(signal)
     })
   )
 }
@@ -181,7 +196,7 @@ export function postJson<T>(
       headers: requestHeaders,
       body: json,
       debugRequestBody: json,
-      signal
+      signal: withTimeout(signal)
     })
   )
 }
@@ -196,6 +211,7 @@ export function errorToResult(
   env: StoredEnv
 ): { ok: false; error: string; errorKind?: ErrorKind } {
   if (isAbortError(err)) return { ok: false, error: CANCELLED }
+  if (isTimeoutError(err)) return { ok: false, error: TIMED_OUT }
   if (err instanceof FileTransferApiError) {
     if (isForbidden(err)) {
       return { ok: false, error: folderForbidden(err.path, err.message), errorKind: 'permission' }
@@ -615,7 +631,10 @@ export async function uploadFiles(
             err instanceof FileTransferApiError && err.code === 'PRECONDITION_FAILED'
               ? changedSincePreview(file.remoteRelativePath, 'replaced')
               : isForbidden(err)
-                ? folderForbidden((err as FileTransferApiError).path ?? targetPath, (err as Error).message)
+                ? folderForbidden(
+                    (err as FileTransferApiError).path ?? targetPath,
+                    (err as Error).message
+                  )
                 : err instanceof Error
                   ? err.message
                   : String(err)
@@ -657,10 +676,12 @@ const MANIFEST_PAGE_SIZE = '1000'
 
 // Walks the recursive manifest of a directory, following `nextCursor` until the
 // server reports no more pages. Entry paths are relative to the requested directory.
+// `onPage` gets the running entry count after each page.
 export async function collectManifest(
   env: StoredEnv,
   remoteDirApiPath: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onPage?: (entries: number) => void
 ): Promise<FileTransferEntry[]> {
   const all: FileTransferEntry[] = []
   let cursor: string | null = null
@@ -669,6 +690,7 @@ export async function collectManifest(
     if (cursor) query.cursor = cursor
     const page: ManifestPage = await getJson<ManifestPage>(env, 'manifest', query, signal)
     all.push(...page.entries)
+    onPage?.(all.length)
     cursor = page.nextCursor
   } while (cursor)
   return all

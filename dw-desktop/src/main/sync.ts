@@ -30,6 +30,7 @@ import type {
   SyncAction,
   SyncItem,
   SyncPlan,
+  SyncPlanProgress,
   SyncRequest,
   SyncRunItem,
   SyncRunResult
@@ -109,9 +110,12 @@ function sourceUnchangedSinceSync(
   )
 }
 
-export async function hashFile(path: string): Promise<string> {
+export async function hashFile(path: string, signal?: AbortSignal): Promise<string> {
   const hash = createHash('sha256')
-  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer)
+  for await (const chunk of createReadStream(path)) {
+    signal?.throwIfAborted()
+    hash.update(chunk as Buffer)
+  }
   return hash.digest('hex')
 }
 
@@ -123,7 +127,8 @@ type Excluded = Omit<ExcludedEntry, 'side'>
  */
 export async function walkLocal(
   root: string,
-  exclusions?: Exclusions
+  exclusions?: Exclusions,
+  { signal, onEntry }: { signal?: AbortSignal; onEntry?: (path: string) => void } = {}
 ): Promise<{
   files: Map<string, LocalFile>
   dirs: Map<string, { path: string; absolute: string }>
@@ -135,6 +140,7 @@ export async function walkLocal(
   async function walk(dir: string, prefix: string): Promise<void> {
     if (prefix) await exclusions?.enterDir(dir, prefix)
     for (const entry of await readdir(dir, { withFileTypes: true })) {
+      signal?.throwIfAborted()
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name
       const absolute = join(dir, entry.name)
       const isDir = entry.isDirectory()
@@ -144,6 +150,7 @@ export async function walkLocal(
         excluded.push({ path: rel, type: isDir ? 'directory' : 'file', rule })
         continue
       }
+      onEntry?.(rel)
       if (isDir) {
         dirs.set(rel.toLowerCase(), { path: rel, absolute })
         await walk(absolute, rel)
@@ -191,13 +198,17 @@ async function remoteSha(
   env: StoredEnv,
   state: TransferState,
   apiPath: string,
-  eTag: string | null | undefined
+  eTag: string | null | undefined,
+  signal?: AbortSignal
 ): Promise<string> {
   const known = state.knownHash(apiPath, eTag)
   if (known) return known
-  const result = await getJson<{ value: string; eTag: string }>(env, 'entries/checksum', {
-    path: apiPath
-  })
+  const result = await getJson<{ value: string; eTag: string }>(
+    env,
+    'entries/checksum',
+    { path: apiPath },
+    signal
+  )
   state.cacheHash(apiPath, result.eTag, result.value)
   return result.value
 }
@@ -213,11 +224,47 @@ function item(
   return { path, type, action, reason, size, remoteETag, include: action !== 'conflict' }
 }
 
+export interface PlanHooks {
+  signal?: AbortSignal
+  progress?: (p: Omit<SyncPlanProgress, 'previewId'>) => void
+}
+
+// A file that can't be compared is left out of the plan and listed with the reason.
+// Only what would fail every other file too stops the preview: cancelling, a refused
+// login, or a server that can't be reached.
+function stopsPreview(err: unknown): boolean {
+  if (isAbortError(err)) return true
+  if (err instanceof FileTransferApiError)
+    return (err.status === 401 || err.status === 403) && !isForbidden(err)
+  return err instanceof TypeError
+}
+
+function compareFailed(
+  env: StoredEnv,
+  d: PlanDetail,
+  size: number | undefined,
+  err: unknown
+): void {
+  if (stopsPreview(err)) throw err
+  d.item = {
+    ...item(d.item.path, 'file', 'skip', 'Couldn’t compare', size, d.remote?.eTag),
+    include: false,
+    error: errorToResult(err, env).error
+  }
+}
+
 export async function buildSyncPlan(
   env: StoredEnv,
   request: SyncRequest,
-  state: TransferState = createTransferState(env)
+  state: TransferState = createTransferState(env),
+  hooks: PlanHooks = {}
 ): Promise<IPCResult<SyncPlan>> {
+  // Stopped on the way out too, so a failure in one worker stops the others' requests.
+  const stop = new AbortController()
+  const signal = hooks.signal ? AbortSignal.any([hooks.signal, stop.signal]) : stop.signal
+  let failed = 0
+  const report = (p: Omit<SyncPlanProgress, 'previewId' | 'failed'>): void =>
+    hooks.progress?.({ ...p, failed })
   try {
     const push = request.direction === 'push'
     const apiRoot = toApiPath(request.remotePath)
@@ -230,9 +277,15 @@ export async function buildSyncPlan(
     })
 
     let local: Awaited<ReturnType<typeof walkLocal>>
+    let listed = 0
+    report({ phase: 'local', done: 0 })
     try {
-      local = await walkLocal(request.localPath, exclusions)
-    } catch {
+      local = await walkLocal(request.localPath, exclusions, {
+        signal,
+        onEntry: (current) => report({ phase: 'local', done: ++listed, current })
+      })
+    } catch (err) {
+      if (isAbortError(err)) throw err
       if (push)
         return { ok: false, error: `The local folder “${request.localPath}” doesn’t exist.` }
       local = { files: new Map(), dirs: new Map(), excluded: [] }
@@ -240,7 +293,10 @@ export async function buildSyncPlan(
 
     let remoteEntries: FileTransferEntry[]
     try {
-      remoteEntries = await collectManifest(env, apiRoot)
+      report({ phase: 'remote', done: 0 })
+      remoteEntries = await collectManifest(env, apiRoot, signal, (done) =>
+        report({ phase: 'remote', done })
+      )
     } catch (err) {
       if (!(err instanceof FileTransferApiError && err.code === 'NOT_FOUND')) throw err
       if (!push) return { ok: false, error: 'That folder doesn’t exist on the server.' }
@@ -298,20 +354,30 @@ export async function buildSyncPlan(
         add({ item: item(r.path, 'file', 'skip', 'Only on the server', r.size, r.eTag), remote: r })
     }
 
-    await mapPool(both, FILE_CONCURRENCY * 2, async ({ local: l, remote: r }) => {
+    let compared = 0
+    report({ phase: 'compare', done: 0, total: both.length })
+    const compareOne = async (l: LocalFile, r: FileTransferEntry): Promise<void> => {
       const d: PlanDetail = { item: item(l.path, 'file', 'skip', ''), local: l, remote: r }
       const apiPath = joinApi(apiRoot, r.path)
       let reason: string | null = null
       if (l.size !== r.size) {
         reason = push ? 'Different on this computer' : 'Different on the server'
       } else if (request.compareContent) {
-        const [ls, rs] = await Promise.all([
-          hashFile(l.absolute),
-          remoteSha(env, state, apiPath, r.eTag)
-        ])
-        d.localSha = ls
-        d.remoteSha = rs
-        if (ls !== rs) reason = 'Content differs'
+        report({ phase: 'compare', done: compared, total: both.length, current: l.path })
+        try {
+          const [ls, rs] = await Promise.all([
+            hashFile(l.absolute, signal),
+            remoteSha(env, state, apiPath, r.eTag, signal)
+          ])
+          d.localSha = ls
+          d.remoteSha = rs
+        } catch (err) {
+          compareFailed(env, d, push ? l.size : r.size, err)
+          failed++
+          add(d)
+          return
+        }
+        if (d.localSha !== d.remoteSha) reason = 'Content differs'
       } else if (!sourceUnchangedSinceSync(push, state.getFile(apiPath), l, r)) {
         const delta = l.mtimeMs - Date.parse(r.modifiedUtc)
         if (push && delta > MTIME_TOLERANCE_MS) reason = 'Newer on this computer'
@@ -323,7 +389,13 @@ export async function buildSyncPlan(
       }
       d.item = item(l.path, 'file', 'replace', reason, push ? l.size : r.size, r.eTag)
       add(d)
+    }
+    await mapPool(both, FILE_CONCURRENCY * 2, async ({ local: l, remote: r }) => {
+      signal.throwIfAborted()
+      await compareOne(l, r)
+      compared++
     })
+    report({ phase: 'compare', done: compared, total: both.length })
 
     // Directories that exist on one side only.
     for (const [k, dir] of local.dirs) {
@@ -345,10 +417,15 @@ export async function buildSyncPlan(
 
     // Conflicts: only meaningful once this folder has a baseline.
     if (syncedBefore) {
-      await mapPool([...details.values()], FILE_CONCURRENCY * 2, async (d) => {
-        if (d.item.type !== 'file') return
+      const toCheck = [...details.values()].filter(
+        (d) => d.item.type === 'file' && (d.item.action === 'replace' || d.item.action === 'delete')
+      )
+      let checked = 0
+      report({ phase: 'conflicts', done: 0, total: toCheck.length })
+      await mapPool(toCheck, FILE_CONCURRENCY * 2, async (d) => {
+        signal.throwIfAborted()
         const { action } = d.item
-        if (action !== 'replace' && action !== 'delete') return
+        report({ phase: 'conflicts', done: checked++, total: toCheck.length, current: d.item.path })
         const apiPath = joinApi(apiRoot, d.item.path)
         const base = state.getFile(apiPath)
         if (push && d.remote) {
@@ -361,7 +438,13 @@ export async function buildSyncPlan(
             return
           }
           if (!base.sha256) return
-          d.localSha ??= await hashFile(d.local.absolute)
+          try {
+            d.localSha ??= await hashFile(d.local.absolute, signal)
+          } catch (err) {
+            compareFailed(env, d, d.item.size, err)
+            failed++
+            return
+          }
           if (d.localSha !== base.sha256)
             markConflict(d, 'Changed on this computer since your last sync')
         }
@@ -408,6 +491,8 @@ export async function buildSyncPlan(
     return { ok: true, data: plan }
   } catch (err) {
     return errorToResult(err, env)
+  } finally {
+    stop.abort()
   }
 }
 
@@ -457,10 +542,7 @@ export async function runSyncPlan(
     .map((r) => ({ run: r, d: details.get(r.path) }))
     .filter((x): x is { run: SyncRunItem; d: PlanDetail } => !!x.d)
 
-  const finish = (
-    jobId: string,
-    outcome: SyncOutcome
-  ): void => {
+  const finish = (jobId: string, outcome: SyncOutcome): void => {
     if (outcome.skipped) result.skipped++
     else if (outcome.ok) result.done++
     else result.failed++
