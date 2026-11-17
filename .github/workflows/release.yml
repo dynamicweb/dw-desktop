@@ -33,7 +33,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: windows
-          path: dw-desktop/dist/*.exe
+          # latest.yml + blockmaps let electron-updater offer the update to installed copies.
+          path: |
+            dw-desktop/dist/*.exe
+            dw-desktop/dist/*.exe.blockmap
+            dw-desktop/dist/latest.yml
 
   build-mac:
     runs-on: macos-latest
@@ -104,6 +108,7 @@ jobs:
           path: |
             dw-desktop/dist/*.AppImage
             dw-desktop/dist/*.deb
+            dw-desktop/dist/latest-linux.yml
 
   release:
     needs: [build-windows, build-mac, build-linux]

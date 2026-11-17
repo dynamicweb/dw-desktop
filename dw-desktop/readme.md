@@ -52,23 +52,20 @@ Main-process logic is unit-tested with vitest (`src/main/*.test.ts`, `fetch` and
 
 ## Publish a new version
 
-Releases are distributed as GitHub Releases via `electron-builder` (config in [electron-builder.yml](electron-builder.yml), `publish.provider: github`, `owner: dynamicweb`, `repo: dw-desktop`). `electron-updater` consumes those releases for auto-updates.
+Releases are GitHub Releases on `dynamicweb/dw-desktop`, built and published by [.github/workflows/release.yml](../.github/workflows/release.yml) when a `v*` tag is pushed. `electron-updater` reads the `latest.yml` (Windows) and `latest-linux.yml` (AppImage) manifests attached to the latest release. The Mac build is ad-hoc signed only, so it does not auto-update — Mac users install new versions from the release page.
 
-1. Bump the version and tag:
+1. Bump the version on a branch and merge it to `main` through a PR:
    ```
-   npm version patch    # or minor / major
+   npm version 1.2.3 --no-git-tag-version    # updates package.json + package-lock.json
    ```
-2. Build + publish the platform installers. You need a `GH_TOKEN` env var with `repo` scope on `dynamicweb/dw-desktop`:
+2. Tag the merge commit on `main` and push the tag:
    ```
-   $env:GH_TOKEN = "ghp_..."
-   npx electron-builder --win --publish always
+   git checkout main && git pull
+   git tag -a v1.2.3 -m "dw-desktop v1.2.3"
+   git push origin v1.2.3
    ```
-   Use `--mac` / `--linux` on the respective OS. `--publish always` uploads artifacts (installer + `latest*.yml` update manifest) to a draft GitHub Release named after the new version.
-3. Open the draft release on GitHub, write release notes, and publish it. Auto-update clients pick it up from `latest.yml`.
-4. Push the version commit and tag:
-   ```
-   git push && git push --tags
-   ```
+   Tags containing `alpha`, `beta` or `rc` are published as pre-releases.
+3. When the workflow finishes, the release is live with auto-generated notes. Replace them with the notes from `docs/release-notes/` if there are any.
 
 ### Local build without publishing
 
