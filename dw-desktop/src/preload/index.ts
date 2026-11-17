@@ -5,9 +5,16 @@ import type {
   FileEntry,
   IPCResult,
   PaneState,
-  RemoteListing,
+  SavedSync,
   StoredEnv,
-  ThemeMode
+  SyncPlan,
+  SyncPlanProgress,
+  SyncRequest,
+  SyncRunItem,
+  SyncRunResult,
+  ThemeMode,
+  TransferJob,
+  UploadConflictInfo
 } from '../shared/types'
 
 interface ProgressPayload {
@@ -21,9 +28,16 @@ interface DonePayload {
   jobId: string
   ok: boolean
   error?: string
+  errorKind?: 'permission'
   uploaded?: number
   skipped?: number
   skippedNames?: string[]
+  excludedNames?: string[]
+  cancelled?: boolean
+}
+
+interface SyncFinishedPayload extends SyncRunResult {
+  planId: string
 }
 
 const dw = {
@@ -46,25 +60,66 @@ const dw = {
       ipcRenderer.invoke('auth:getHints', { envName })
   },
   files: {
-    list: (envName: string, path: string, loadAll = false): Promise<IPCResult<RemoteListing>> =>
-      ipcRenderer.invoke('files:list', { envName, path, loadAll }),
+    list: (envName: string, path: string): Promise<IPCResult<FileEntry[]>> =>
+      ipcRenderer.invoke('files:list', { envName, path }),
     upload: (
       envName: string,
       localPaths: string[],
       remotePath: string,
       overwrite: boolean,
-      jobId: string
+      jobId: string,
+      ifMatch?: string | null
     ): void => {
-      ipcRenderer.send('files:upload', { envName, localPaths, remotePath, overwrite, jobId })
+      ipcRenderer.send('files:upload', {
+        envName,
+        localPaths,
+        remotePath,
+        overwrite,
+        jobId,
+        ifMatch
+      })
     },
-    download: (envName: string, remotePath: string, localPath: string): Promise<IPCResult> =>
-      ipcRenderer.invoke('files:download', { envName, remotePath, localPath }),
-    delete: (envName: string, path: string): Promise<IPCResult> =>
-      ipcRenderer.invoke('files:delete', { envName, path }),
+    checkConflicts: (
+      envName: string,
+      localPaths: string[],
+      remotePath: string
+    ): Promise<IPCResult<UploadConflictInfo>> =>
+      ipcRenderer.invoke('files:checkConflicts', { envName, localPaths, remotePath }),
+    download: (
+      envName: string,
+      remotePath: string,
+      localPath: string,
+      jobId?: string
+    ): Promise<IPCResult> =>
+      ipcRenderer.invoke('files:download', { envName, remotePath, localPath, jobId }),
+    cancel: (jobIds: string[]): void => ipcRenderer.send('files:cancel', { jobIds }),
+    delete: (envName: string, path: string, ifMatch?: string | null): Promise<IPCResult> =>
+      ipcRenderer.invoke('files:delete', { envName, path, ifMatch }),
     copy: (envName: string, source: string, destination: string): Promise<IPCResult> =>
       ipcRenderer.invoke('files:copy', { envName, source, destination }),
     rename: (envName: string, filePath: string, newName: string): Promise<IPCResult> =>
-      ipcRenderer.invoke('files:rename', { envName, filePath, newName })
+      ipcRenderer.invoke('files:rename', { envName, filePath, newName }),
+    move: (envName: string, sourcePath: string, targetDir: string): Promise<IPCResult> =>
+      ipcRenderer.invoke('files:move', { envName, sourcePath, targetDir }),
+    createDirectory: (envName: string, parentPath: string, name: string): Promise<IPCResult> =>
+      ipcRenderer.invoke('files:createDirectory', { envName, parentPath, name })
+  },
+  sync: {
+    plan: (request: SyncRequest, previewId: string): Promise<IPCResult<SyncPlan>> =>
+      ipcRenderer.invoke('sync:plan', { request, previewId }),
+    cancelPlan: (previewId: string): void => ipcRenderer.send('sync:cancelPlan', previewId),
+    run: (planId: string, items: SyncRunItem[]): void =>
+      ipcRenderer.send('sync:run', { planId, items }),
+    inspectLocal: (localPath: string): Promise<IPCResult<{ gitignore: boolean }>> =>
+      ipcRenderer.invoke('sync:inspectLocal', localPath),
+    makeDirectory: (
+      envName: string,
+      target: { remotePath?: string; localPath?: string }
+    ): Promise<IPCResult> => ipcRenderer.invoke('sync:makeDirectory', { envName, ...target })
+  },
+  activity: {
+    load: (): Promise<TransferJob[]> => ipcRenderer.invoke('activity:load'),
+    save: (jobs: TransferJob[]): void => ipcRenderer.send('activity:save', jobs)
   },
   fs: {
     list: (dirPath: string): Promise<IPCResult<FileEntry[]>> =>
@@ -86,6 +141,18 @@ const dw = {
       const listener = (_: Electron.IpcRendererEvent, payload: DonePayload): void => cb(payload)
       ipcRenderer.on('files:done', listener)
       return () => ipcRenderer.removeListener('files:done', listener)
+    },
+    syncFinished: (cb: (payload: SyncFinishedPayload) => void): (() => void) => {
+      const listener = (_: Electron.IpcRendererEvent, payload: SyncFinishedPayload): void =>
+        cb(payload)
+      ipcRenderer.on('sync:finished', listener)
+      return () => ipcRenderer.removeListener('sync:finished', listener)
+    },
+    syncPlanProgress: (cb: (payload: SyncPlanProgress) => void): (() => void) => {
+      const listener = (_: Electron.IpcRendererEvent, payload: SyncPlanProgress): void =>
+        cb(payload)
+      ipcRenderer.on('sync:planProgress', listener)
+      return () => ipcRenderer.removeListener('sync:planProgress', listener)
     },
     debugEntry: (cb: (entry: unknown) => void): (() => void) => {
       const listener = (_: Electron.IpcRendererEvent, entry: unknown): void => cb(entry)
@@ -117,7 +184,13 @@ const dw = {
     getPaneState: (envName: string): Promise<IPCResult<PaneState>> =>
       ipcRenderer.invoke('settings:getPaneState', envName),
     setPaneState: (envName: string, patch: PaneState): Promise<IPCResult> =>
-      ipcRenderer.invoke('settings:setPaneState', { envName, patch })
+      ipcRenderer.invoke('settings:setPaneState', { envName, patch }),
+    getSyncs: (envName: string): Promise<IPCResult<SavedSync[]>> =>
+      ipcRenderer.invoke('settings:getSyncs', envName),
+    saveSync: (envName: string, sync: SavedSync): Promise<IPCResult> =>
+      ipcRenderer.invoke('settings:saveSync', { envName, sync }),
+    deleteSync: (envName: string, id: string): Promise<IPCResult> =>
+      ipcRenderer.invoke('settings:deleteSync', { envName, id })
   }
 }
 

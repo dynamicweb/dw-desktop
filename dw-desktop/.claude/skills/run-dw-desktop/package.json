@@ -1,0 +1,9 @@
+{
+  "name": "run-dw-desktop-driver",
+  "private": true,
+  "type": "module",
+  "description": "Playwright driver for the dw-desktop run skill (kept out of the app's own dependencies).",
+  "dependencies": {
+    "playwright-core": "1.56.1"
+  }
+}

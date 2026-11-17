@@ -4,9 +4,16 @@ import type {
   FileEntry,
   IPCResult,
   PaneState,
-  RemoteListing,
   StoredEnv,
-  ThemeMode
+  SavedSync,
+  SyncPlan,
+  SyncPlanProgress,
+  SyncRequest,
+  SyncRunItem,
+  SyncRunResult,
+  ThemeMode,
+  TransferJob,
+  UploadConflictInfo
 } from '../shared/types'
 
 export interface ProgressPayload {
@@ -20,9 +27,16 @@ export interface DonePayload {
   jobId: string
   ok: boolean
   error?: string
+  errorKind?: 'permission'
   uploaded?: number
   skipped?: number
   skippedNames?: string[]
+  excludedNames?: string[]
+  cancelled?: boolean
+}
+
+export interface SyncFinishedPayload extends SyncRunResult {
+  planId: string
 }
 
 export interface DWDesktopAPI {
@@ -41,18 +55,52 @@ export interface DWDesktopAPI {
     getHints(envName: string): Promise<IPCResult<CredentialHints>>
   }
   files: {
-    list(envName: string, path: string, loadAll?: boolean): Promise<IPCResult<RemoteListing>>
+    list(envName: string, path: string): Promise<IPCResult<FileEntry[]>>
     upload(
       envName: string,
       localPaths: string[],
       remotePath: string,
       overwrite: boolean,
-      jobId: string
+      jobId: string,
+      /** Replace only this server version (a sync item retried from Activity). */
+      ifMatch?: string | null
     ): void
-    download(envName: string, remotePath: string, localPath: string): Promise<IPCResult>
-    delete(envName: string, path: string): Promise<IPCResult>
+    checkConflicts(
+      envName: string,
+      localPaths: string[],
+      remotePath: string
+    ): Promise<IPCResult<UploadConflictInfo>>
+    download(
+      envName: string,
+      remotePath: string,
+      localPath: string,
+      jobId?: string
+    ): Promise<IPCResult>
+    cancel(jobIds: string[]): void
+    /** `ifMatch`: delete only this server version (a sync item retried from Activity). */
+    delete(envName: string, path: string, ifMatch?: string | null): Promise<IPCResult>
     copy(envName: string, source: string, destination: string): Promise<IPCResult>
     rename(envName: string, filePath: string, newName: string): Promise<IPCResult>
+    move(envName: string, sourcePath: string, targetDir: string): Promise<IPCResult>
+    createDirectory(envName: string, parentPath: string, name: string): Promise<IPCResult>
+  }
+  sync: {
+    /** `previewId` names the preview for its progress events and for cancelPlan. */
+    plan(request: SyncRequest, previewId: string): Promise<IPCResult<SyncPlan>>
+    cancelPlan(previewId: string): void
+    run(planId: string, items: SyncRunItem[]): void
+    /** Whether a .gitignore applies to the local folder, so the option is worth offering. */
+    inspectLocal(localPath: string): Promise<IPCResult<{ gitignore: boolean }>>
+    /** Retry of a sync folder item: creates that one folder on the server or locally. */
+    makeDirectory(
+      envName: string,
+      target: { remotePath?: string; localPath?: string }
+    ): Promise<IPCResult>
+  }
+  activity: {
+    /** The saved history; jobs that were running at the last quit come back as failed. */
+    load(): Promise<TransferJob[]>
+    save(jobs: TransferJob[]): void
   }
   fs: {
     list(dirPath: string): Promise<IPCResult<FileEntry[]>>
@@ -65,6 +113,8 @@ export interface DWDesktopAPI {
   on: {
     filesProgress(cb: (payload: ProgressPayload) => void): () => void
     filesDone(cb: (payload: DonePayload) => void): () => void
+    syncFinished(cb: (payload: SyncFinishedPayload) => void): () => void
+    syncPlanProgress(cb: (payload: SyncPlanProgress) => void): () => void
     debugEntry(cb: (entry: DebugEntry) => void): () => void
     updaterAvailable(cb: (info: { version: string }) => void): () => void
     updaterDownloaded(cb: (info: { version: string }) => void): () => void
@@ -81,6 +131,9 @@ export interface DWDesktopAPI {
     setTheme(theme: ThemeMode): Promise<IPCResult>
     getPaneState(envName: string): Promise<IPCResult<PaneState>>
     setPaneState(envName: string, patch: PaneState): Promise<IPCResult>
+    getSyncs(envName: string): Promise<IPCResult<SavedSync[]>>
+    saveSync(envName: string, sync: SavedSync): Promise<IPCResult>
+    deleteSync(envName: string, id: string): Promise<IPCResult>
   }
 }
 
